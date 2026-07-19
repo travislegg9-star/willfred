@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14203a"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+  </defs>
+  <!-- full-bleed background for maskable safe zone -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- content kept within the ~80% safe zone, centered -->
+  <g transform="translate(256 268) scale(0.62) translate(-256 -256)">
+    <ellipse cx="360" cy="150" rx="70" ry="26" fill="#ff8a3d"/>
+    <ellipse cx="360" cy="146" rx="42" ry="14" fill="none" stroke="rgba(0,0,0,0.25)" stroke-width="6"/>
+    <g transform="translate(200 300)">
+      <ellipse cx="0" cy="-10" rx="120" ry="108" fill="#1a1a1e"/>
+      <path d="M -96 -40 Q -150 20 -96 120 Q -60 60 -60 -10 Z" fill="#26262c"/>
+      <path d="M -10 20 Q 120 0 150 60 Q 130 140 20 140 Q -40 110 -10 20 Z" fill="#f3f1ea"/>
+      <path d="M -8 -60 Q 20 -70 30 40 Q 8 50 -8 -60 Z" fill="#f3f1ea"/>
+      <ellipse cx="18" cy="-14" rx="40" ry="34" transform="rotate(-12 18 -14)" fill="#1a1a1e"/>
+      <circle cx="26" cy="-10" r="13" fill="#0a0a0c"/>
+      <circle cx="30" cy="-15" r="4.5" fill="rgba(255,255,255,0.9)"/>
+      <circle cx="140" cy="58" r="18" fill="#111"/>
+      <path d="M 140 74 Q 90 96 30 92" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

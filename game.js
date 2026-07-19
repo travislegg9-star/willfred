@@ -1,0 +1,1324 @@
+/* =====================================================================
+   WOOFA FETCH  — Woofa throws, you flick it, the kids fly for the hero catch.
+   Pure vanilla canvas. No framework, no backend. Saves to localStorage.
+   ===================================================================== */
+(() => {
+  'use strict';
+
+  // ---------- Canvas setup ----------
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
+  window.addEventListener('load', resize);   // re-measure once layout has settled
+  resize();
+
+  const groundY = () => H - Math.max(90, H * 0.14);
+
+  // ---------- Persistence ----------
+  const SAVE_KEY = 'wilford_fetch_v1';
+  const defaultSave = {
+    coins: 0,
+    best: 0,
+    owned: { tennis: true, frisbee: true },
+    equipped: 'frisbee',
+    maxLevel: 1,
+    capeUnlocked: false,
+  };
+  function load() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return { ...defaultSave };
+      const s = JSON.parse(raw);
+      return { ...defaultSave, ...s, owned: { ...defaultSave.owned, ...(s.owned || {}) } };
+    } catch (e) { return { ...defaultSave }; }
+  }
+  function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+  let save = load();
+
+  // ---------- Ball / item catalog ----------
+  // gravity: fall speed feel. power: launch strength. window: sweet-spot forgiveness.
+  // mult: coin multiplier. rip: chance Wilford destroys it on a catch. bounce: restitution.
+  const ITEMS = {
+    tennis:  { emoji: '🎾', name: 'Sad Tennis Ball', cost: 0,    color: '#c7e04a', size: 9,
+               gravity: 1.15, power: 0.86, window: 0.72, mult: 1.0, rip: 0.0, bounce: 0.55,
+               desc: 'Chewed, flat, barely bounces. The fallback when you lose the good stuff.' },
+    frisbee: { emoji: '🥏', name: 'Classic Frisbee', cost: 0,    color: '#ff8a3d', size: 15,
+               gravity: 0.82, power: 1.0,  window: 1.0,  mult: 1.15, rip: 0.02, bounce: 0.3,
+               desc: 'Floaty and forgiving. A proper throw. Woofa\'s favourite.' },
+    spiky:   { emoji: '🔴', name: 'Spiky Ball', cost: 320,  color: '#ff4d5e', size: 12,
+               gravity: 1.05, power: 1.22, window: 0.9,  mult: 1.5,  rip: 0.10, bounce: 0.7,
+               desc: 'Flies flat and fast for big range. Pays 1.5×. He chews it more often, though.' },
+    squishy: { emoji: '🟣', name: 'Squishy Ball', cost: 850,  color: '#a06bff', size: 14,
+               gravity: 0.9,  power: 1.08, window: 1.35, mult: 1.8,  rip: 0.04, bounce: 0.92,
+               desc: 'Huge sweet spot, mega bounce, 1.8× bones. The luxury throw.' },
+  };
+  const CAPE = { name: 'Batman Cape', cost: 1600, unlockLevel: 5,
+                 desc: 'Your catcher becomes the hero the field deserves. +10% bones on every catch.' };
+
+  const equippedItem = () => ITEMS[save.equipped] || ITEMS[frisbeeOrTennis()];
+  function frisbeeOrTennis() { return save.owned.frisbee ? 'frisbee' : 'tennis'; }
+
+  // ---------- Scenes ----------
+  const SCENES = [
+    { name: 'Backyard',   sky: ['#7fc7ff', '#cdeaff'], ground: '#5aa64a', groundDark: '#3f7d33', accent: '#6fbf5c', wind: 0 },
+    { name: 'The Park',   sky: ['#63b8ff', '#bfe6ff'], ground: '#4f9e46', groundDark: '#377a30', accent: '#63b055', wind: 0.02 },
+    { name: 'The Beach',  sky: ['#ffd98a', '#ffeecb'], ground: '#e9d29a', groundDark: '#cbb073', accent: '#f0dca8', wind: 0.05 },
+    { name: 'Rooftops',   sky: ['#2b3c66', '#61789e'], ground: '#4a5570', groundDark: '#333c52', accent: '#5b6788', wind: 0.07, roofs: true },
+    { name: 'Snow Field', sky: ['#c3d6ea', '#eef5fb'], ground: '#eef4fb', groundDark: '#cdd9e8', accent: '#dbe6f2', wind: 0.09 },
+  ];
+  const sceneFor = (lvl) => SCENES[(lvl - 1) % SCENES.length];
+
+  // ---------- Game state ----------
+  const STATE = { MENU: 0, AIM: 1, FLY: 2, RESOLVE: 3 };
+  let state = STATE.MENU;
+
+  let level = 1;
+  let sessionScore = 0;
+  let streak = 0;
+  let catchesThisLevel = 0;
+  const CATCHES_TO_ADVANCE = 4;
+
+  let camX = 0;           // camera world-x offset
+  let worldWidth = 1400;
+  let gravity = 0.5;
+  let wind = 0;
+
+  const thrower = { x: 70, handY: 0 };
+  let ring = { x: 900, r: 70 };     // sweet-spot target ring (world x)
+
+  // frisbee/projectile
+  const disc = { x: 0, y: 0, vx: 0, vy: 0, spin: 0, live: false, landed: false, caught: false };
+
+  // Woofa (the dog) is the THROWER. The two kids are the catchers.
+  // `dog` below = the ACTIVE catcher kid's motion state (runs, leaps, faceplants).
+  const dog = {
+    x: 900, y: 0, vx: 0, vy: 0, onGround: true,
+    facing: -1, run: 0, targetX: 900, jumping: false, mouthOpen: 0,
+    state: 'idle', // idle | chase | leap | catchpose | rip | fall
+    stateT: 0,
+  };
+
+  // The two kids who chase the throws.
+  const kids = [
+    // small, pale, lightest blonde with a touch of orange
+    { skin: '#f6e4d6', hair: '#ffd587', hairStyle: 'short', shirt: '#38b2c4',
+      height: 0.82, chub: 0.95, cheeky: false },
+    // older, taller, tanned, dark brown mop, cheeky grin, a touch chubby
+    { skin: '#c78a5a', hair: '#3a2416', hairStyle: 'mop', shirt: '#e0503a',
+      height: 1.08, chub: 1.22, cheeky: true },
+  ];
+  let activeKid = 0;
+
+  // input aiming
+  const aim = { active: false, sx: 0, sy: 0, cx: 0, cy: 0 };
+
+  // effects
+  const particles = [];
+  let shake = 0;
+  let slowmo = 1;
+
+  // ---------- Helpers ----------
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const worldToScreenX = (wx) => wx - camX;
+
+  function spawnParticles(x, y, color, n, spread) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), s = rand(1, spread || 5);
+      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 2, life: 1, color, r: rand(2, 5) });
+    }
+  }
+
+  // ---------- Level setup ----------
+  function configureLevel(lvl) {
+    const sc = sceneFor(lvl);
+    // difficulty ramps: farther target, smaller ring, more wind
+    const step = lvl - 1;
+    worldWidth = 1200 + step * 260;
+    ring.x = clamp(560 + step * 150, 520, worldWidth - 220);
+    ring.r = clamp(78 - step * 3.5, 40, 78);
+    gravity = 0.5;
+    wind = (sc.wind || 0) * (Math.random() < 0.5 ? -1 : 1) * (0.6 + step * 0.12);
+    camX = 0;
+    dog.x = ring.x + rand(-40, 40);
+    dog.targetX = dog.x;
+    dog.y = groundY();
+    dog.state = 'idle';
+    dog.mouthOpen = 0;
+    dog.jumping = false;
+    resetDisc();
+  }
+
+  function resetDisc() {
+    disc.x = thrower.x + 30;   // launches from Woofa's mouth
+    disc.y = groundY() - 70;
+    disc.vx = 0; disc.vy = 0; disc.spin = 0;
+    disc.live = false; disc.landed = false; disc.caught = false; disc.attempted = false;
+    thrower.handY = disc.y;
+  }
+
+  // ---------- Input ----------
+  function pointer(e) {
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX, y: t.clientY };
+  }
+  function onDown(e) {
+    if (state !== STATE.AIM) return;
+    e.preventDefault();
+    const p = pointer(e);
+    aim.active = true;
+    aim.sx = p.x; aim.sy = p.y; aim.cx = p.x; aim.cy = p.y;
+    hideAimHint();
+  }
+  function onMove(e) {
+    if (!aim.active) return;
+    e.preventDefault();
+    const p = pointer(e);
+    aim.cx = p.x; aim.cy = p.y;
+  }
+  function onUp(e) {
+    if (!aim.active) return;
+    e.preventDefault();
+    aim.active = false;
+    launchFromAim();
+  }
+  canvas.addEventListener('touchstart', onDown, { passive: false });
+  canvas.addEventListener('touchmove', onMove, { passive: false });
+  canvas.addEventListener('touchend', onUp, { passive: false });
+  canvas.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+
+  // slingshot: drag vector is pull-back; launch is opposite direction
+  function aimVector() {
+    const dx = aim.sx - aim.cx;   // pull back -> launch forward (+x when dragging left)
+    const dy = aim.sy - aim.cy;   // pull down -> launch up
+    return { dx, dy };
+  }
+
+  function launchFromAim() {
+    const { dx, dy } = aimVector();
+    const pull = Math.hypot(dx, dy);
+    if (pull < 18) { return; } // too small, ignore (stay in AIM)
+    const it = equippedItem();
+    const maxPull = Math.min(W, H) * 0.42;
+    const strength = clamp(pull / maxPull, 0, 1);
+    const speed = (9 + strength * 20) * it.power;
+    const ang = Math.atan2(dy, dx); // launch angle
+    disc.vx = Math.cos(ang) * speed;
+    disc.vy = Math.sin(ang) * speed;
+    // keep it sane: mostly forward & up
+    if (disc.vx < 1) disc.vx = 1;
+    disc.live = true;
+    disc.spin = 0;
+    state = STATE.FLY;
+
+    // Wilford predicts landing and commits
+    const predicted = predictLanding();
+    dog.targetX = predicted.x;
+    dog.state = 'chase';
+    dog.stateT = 0;
+  }
+
+  // Simulate the disc forward to estimate where it will be catchable (near ground)
+  function predictLanding() {
+    const it = equippedItem();
+    let x = disc.x, y = disc.y, vx = disc.vx, vy = disc.vy;
+    const g = gravity * it.gravity;
+    const gy = groundY();
+    for (let i = 0; i < 600; i++) {
+      vy += g;
+      vx += wind;
+      x += vx; y += vy;
+      if (y >= gy - 40 && vy > 0) return { x, y, t: i };
+    }
+    return { x, y, t: 600 };
+  }
+
+  // ---------- Update ----------
+  let last = performance.now();
+  function frame(now) {
+    let dt = (now - last) / 16.6667;
+    last = now;
+    dt = clamp(dt, 0, 2.5) * slowmo;
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function update(dt) {
+    // camera follows disc when flying
+    if (state === STATE.FLY || state === STATE.RESOLVE) {
+      const targetCam = clamp(disc.x - W * 0.42, 0, Math.max(0, worldWidth - W));
+      camX = lerp(camX, targetCam, 0.12 * dt);
+    } else {
+      camX = lerp(camX, 0, 0.1 * dt);
+    }
+
+    if (state === STATE.FLY) updateFlight(dt);
+    updateDog(dt);
+    updateParticles(dt);
+
+    if (shake > 0) shake = Math.max(0, shake - dt * 1.4);
+    // ease slowmo back to normal
+    slowmo = lerp(slowmo, 1, 0.06 * dt);
+  }
+
+  function updateFlight(dt) {
+    const it = equippedItem();
+    const g = gravity * it.gravity;
+    disc.vy += g * dt;
+    disc.vx += wind * dt;
+    disc.x += disc.vx * dt;
+    disc.y += disc.vy * dt;
+    disc.spin += (disc.vx * 0.06 + 0.15) * dt;
+    const gy = groundY();
+
+    // Catch check — when disc gets near the dog and near catch height
+    const dogReach = 150;           // horizontal reach
+    const nearDog = Math.abs(disc.x - dog.x) < dogReach;
+    const catchable = disc.y > gy - 230 && disc.vy > -2; // descending / low
+    if (nearDog && catchable && !disc.caught) {
+      tryCatch();
+      return;
+    }
+
+    // Missed past the dog and hit ground
+    if (disc.y >= gy - it.size) {
+      disc.y = gy - it.size;
+      // bounce a couple times then settle
+      if (Math.abs(disc.vy) > 2.2) {
+        disc.vy = -disc.vy * it.bounce;
+        disc.vx *= 0.7;
+        spawnParticles(disc.x, gy, sceneFor(level).accent, 6, 4);
+      } else {
+        disc.vx *= 0.8;
+        if (Math.abs(disc.vx) < 0.5) resolveMiss();
+      }
+    }
+
+    // Overshoot off the end of the world → gone (lose item flavour)
+    if (disc.x > worldWidth + 60) resolveOvershoot();
+  }
+
+  function tryCatch() {
+    const it = equippedItem();
+    // how close to the sweet-spot ring did it come down?
+    const missToRing = Math.abs(disc.x - ring.x);
+    const perfectR = ring.r * it.window;
+    const goodR = perfectR + 130;
+
+    let quality;
+    if (missToRing <= perfectR) quality = 'perfect';
+    else if (missToRing <= goodR) quality = 'good';
+    else quality = null;
+
+    if (!quality) {
+      // Kid lunges hopefully, mistimes it, and eats dirt.
+      if (!disc.attempted) {
+        disc.attempted = true;
+        dog.state = 'fall'; dog.stateT = 0;
+        dog.onGround = false; dog.jumping = true; dog.vy = -9;
+      }
+      return; // ball keeps falling; resolveMiss handles the crying
+    }
+
+    disc.caught = true;
+    disc.live = false;
+    dog.mouthOpen = 1;
+
+    if (quality === 'perfect') {
+      dog.state = 'leap';
+      dog.stateT = 0;
+      dog.vy = -15;
+      dog.jumping = true;
+      dog.onGround = false;
+      slowmo = 0.45;
+      shake = 6;
+      spawnParticles(disc.x, disc.y, '#ffd23d', 22, 8);
+    } else {
+      dog.state = 'catchpose';
+      dog.stateT = 0;
+      spawnParticles(disc.x, disc.y, it.color, 10, 5);
+    }
+    finishCatch(quality);
+  }
+
+  function finishCatch(quality) {
+    const it = equippedItem();
+    // scoring
+    let base = quality === 'perfect' ? 50 : 20;
+    streak = quality === 'perfect' ? streak + 1 : Math.max(1, Math.floor(streak / 2) + 1);
+    const streakBonus = Math.min(streak - 1, 8) * (quality === 'perfect' ? 6 : 2);
+    let coins = Math.round((base + streakBonus) * it.mult);
+    if (isCapeOn()) coins = Math.round(coins * 1.1); // Batman-cape kid bonus
+
+    sessionScore += coins;
+    save.coins += coins;
+
+    // rip chance — Wilford destroys the item
+    const willRip = Math.random() < it.rip && save.equipped !== 'tennis';
+    setTimeout(() => {
+      if (quality === 'perfect') {
+        toast(`HERO CATCH! +${coins}🦴`, '#ffd23d');
+      } else {
+        toast(`Nice catch +${coins}🦴`, '#58e08a');
+      }
+    }, quality === 'perfect' ? 220 : 40);
+
+    catchesThisLevel++;
+    if (sessionScore > save.best) save.best = sessionScore;
+
+    // schedule resolve
+    const delay = quality === 'perfect' ? 1400 : 900;
+    setTimeout(() => {
+      if (willRip) doRip();
+      else advanceAfterCatch();
+    }, delay);
+
+    persist();
+    updateHUD();
+  }
+
+  function doRip() {
+    dog.state = 'rip';
+    dog.stateT = 0;
+    const lost = ITEMS[save.equipped];
+    spawnParticles(dog.x, dog.y - 40, lost.color, 26, 7);
+    shake = 8;
+    // caught it way too hard — the fragile ball gets wrecked
+    if (save.equipped === 'spiky') save.owned.spiky = false;
+    if (save.equipped === 'squishy') save.owned.squishy = false;
+    save.equipped = save.owned.frisbee ? 'frisbee' : 'tennis';
+    toast(`The ${lost.name} got WRECKED! 😬 Back to the ${ITEMS[save.equipped].name}`, '#ff4d5e');
+    persist();
+    setTimeout(advanceAfterCatch, 1500);
+  }
+
+  function advanceAfterCatch() {
+    if (catchesThisLevel >= CATCHES_TO_ADVANCE) {
+      catchesThisLevel = 0;
+      level++;
+      if (level > save.maxLevel) { save.maxLevel = level; persist(); }
+      toast(`LEVEL ${level} — ${sceneFor(level).name}!`, '#ff8a3d');
+      if (level >= CAPE.unlockLevel && !save.capeUnlocked) {
+        // just gate purchase; announce
+        setTimeout(() => toast('Batman Cape unlocked in shop! 🦇', '#a06bff'), 1400);
+      }
+      setTimeout(() => { configureLevel(level); newThrow(); }, 900);
+    } else {
+      newThrow();
+    }
+    updateHUD();
+  }
+
+  function resolveMiss() {
+    if (state !== STATE.FLY) return;
+    state = STATE.RESOLVE;
+    streak = 0;
+    const faceplant = dog.state === 'fall';
+    if (!faceplant) { dog.state = 'idle'; dog.mouthOpen = 0; }
+    const cries = ['Owwww my bones! 😭', 'Waaahh! 😭', 'My leg! 😭', "That's not fair! 😭"];
+    if (faceplant) toast(cries[(Math.random() * cries.length) | 0], '#ff8a3d');
+    else toast('Missed! 🐾', '#93a2c4');
+    updateHUD();
+    setTimeout(newThrow, faceplant ? 1600 : 1100);
+  }
+
+  function resolveOvershoot() {
+    if (state !== STATE.FLY) return;
+    state = STATE.RESOLVE;
+    streak = 0;
+    const sc = sceneFor(level);
+    // On the rooftops, an overshoot means it's stuck up on a roof → lose it.
+    const loseIt = sc.roofs && save.equipped !== 'tennis' && Math.random() < 0.8;
+    if (loseIt) {
+      if (save.equipped === 'spiky') save.owned.spiky = false;
+      if (save.equipped === 'squishy') save.owned.squishy = false;
+      if (save.equipped === 'frisbee') save.owned.frisbee = false;
+      save.equipped = save.owned.frisbee ? 'frisbee' : 'tennis';
+      toast(`It's on the roof! 🏠 Grab the ${ITEMS[save.equipped].name}`, '#ff4d5e');
+      persist();
+    } else {
+      toast('Way too far! 🐾', '#93a2c4');
+    }
+    updateHUD();
+    setTimeout(newThrow, 1300);
+  }
+
+  function newThrow() {
+    // swap which kid is up, re-roll wind, reset positions
+    activeKid = 1 - activeKid;
+    const sc = sceneFor(level);
+    wind = (sc.wind || 0) * (Math.random() < 0.5 ? -1 : 1) * (0.6 + (level - 1) * 0.12);
+    dog.x = ring.x + rand(-30, 30);
+    dog.y = groundY();
+    dog.targetX = dog.x;
+    dog.facing = -1;
+    dog.state = 'idle';
+    dog.mouthOpen = 0;
+    dog.jumping = false;
+    dog.onGround = true;
+    dog.vy = 0;
+    resetDisc();
+    state = STATE.AIM;
+    showAimHint();
+  }
+
+  // ---------- Dog AI & animation ----------
+  function updateDog(dt) {
+    const gy = groundY();
+    const speed = 4.6 + level * 0.15;
+
+    if (dog.state === 'chase') {
+      const dx = dog.targetX - dog.x;
+      dog.facing = dx >= 0 ? 1 : -1;
+      const move = clamp(dx, -speed * dt, speed * dt);
+      dog.x += move;
+      dog.run += Math.abs(move) * 0.12;
+    } else if (dog.state === 'idle') {
+      // gentle idle sway
+      dog.run += dt * 0.04;
+    } else if (dog.state === 'leap') {
+      dog.stateT += dt;
+      dog.vy += gravity * 1.1 * dt;
+      dog.y += dog.vy * dt;
+      // ride toward the disc for the highlight
+      if (disc.caught) { dog.x = lerp(dog.x, disc.x, 0.25 * dt); }
+      if (dog.y >= gy) { dog.y = gy; dog.vy = 0; dog.jumping = false; dog.state = 'catchpose'; dog.stateT = 0; }
+    } else if (dog.state === 'fall') {
+      dog.stateT += dt;
+      if (!dog.onGround) {
+        dog.vy += gravity * 1.1 * dt;
+        dog.y += dog.vy * dt;
+        dog.x += dog.facing * 1.2 * dt;        // the hopeful lunge forward
+        if (dog.y >= gy) {
+          dog.y = gy; dog.vy = 0; dog.onGround = true; dog.jumping = false;
+          spawnParticles(dog.x, gy - 6, '#ffffff', 12, 5);   // dust
+          spawnParticles(dog.x, gy - 70, '#ffd23d', 8, 4);   // "seeing stars"
+          shake = 7;
+        }
+      }
+    } else if (dog.state === 'catchpose' || dog.state === 'rip' || dog.state === 'celebrate') {
+      dog.stateT += dt;
+    }
+
+    // carry the caught ball in the kid's hands
+    if (disc.caught) {
+      const mouth = dogMouthPos();
+      disc.x = mouth.x; disc.y = mouth.y;
+      disc.vx = 0; disc.vy = 0;
+    }
+    dog.mouthOpen = lerp(dog.mouthOpen, (dog.state === 'leap' || dog.state === 'chase') ? 1 : 0, 0.2 * dt);
+  }
+
+  function dogMouthPos() {
+    // hands of the active catcher kid (reaching up)
+    const h = kids[activeKid].height;
+    return { x: dog.x + 10 * dog.facing, y: dog.y - (26 * h + 30 * h + 8) };
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.vy += 0.25 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= 0.02 * dt;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  // ---------- Rendering ----------
+  function render() {
+    ctx.save();
+    if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
+
+    drawScene();
+
+    // world-space objects
+    ctx.save();
+    ctx.translate(-camX, 0);
+    drawRing();
+    drawWoofa();
+    drawCatchers();
+    drawDisc();
+    drawParticles();
+    ctx.restore();
+
+    if (state === STATE.AIM && aim.active) drawAimUI();
+
+    ctx.restore();
+  }
+
+  function drawScene() {
+    const sc = sceneFor(level);
+    const gy = groundY();
+    // sky
+    const g = ctx.createLinearGradient(0, 0, 0, gy);
+    g.addColorStop(0, sc.sky[0]);
+    g.addColorStop(1, sc.sky[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, gy);
+
+    // parallax scenery (clouds / skyline / dunes) — tied loosely to camera
+    const par = camX * 0.3;
+    if (sc.roofs) drawSkyline(par, gy);
+    else drawClouds(par, gy);
+
+    // ground
+    ctx.fillStyle = sc.ground;
+    ctx.fillRect(0, gy, W, H - gy);
+    ctx.fillStyle = sc.groundDark;
+    ctx.fillRect(0, gy, W, 6);
+    // ground texture streaks
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.lineWidth = 2;
+    const off = -(camX * 1) % 60;
+    for (let x = off; x < W; x += 60) {
+      ctx.beginPath();
+      ctx.moveTo(x, gy + 18);
+      ctx.lineTo(x + 22, gy + 18);
+      ctx.stroke();
+    }
+  }
+
+  function drawClouds(par, gy) {
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    const cw = 900;
+    for (let base = -cw; base < W + cw; base += cw) {
+      const cx = base - (par % cw);
+      cloud(cx + 120, gy * 0.28, 34);
+      cloud(cx + 460, gy * 0.2, 26);
+      cloud(cx + 720, gy * 0.36, 30);
+    }
+  }
+  function cloud(x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 7); ctx.arc(x + r, y + 6, r * 0.8, 0, 7);
+    ctx.arc(x - r, y + 8, r * 0.7, 0, 7); ctx.arc(x + r * 0.4, y - r * 0.5, r * 0.7, 0, 7);
+    ctx.fill();
+  }
+  function drawSkyline(par, gy) {
+    const bw = 700;
+    for (let base = -bw; base < W + bw; base += bw) {
+      const bx = base - (par % bw);
+      ctx.fillStyle = 'rgba(20,28,48,0.55)';
+      building(bx + 40, gy, 70, gy * 0.5);
+      building(bx + 140, gy, 55, gy * 0.35);
+      building(bx + 230, gy, 90, gy * 0.6);
+      building(bx + 350, gy, 60, gy * 0.42);
+      building(bx + 450, gy, 100, gy * 0.55);
+      building(bx + 580, gy, 65, gy * 0.38);
+    }
+  }
+  function building(x, gy, w, h) {
+    ctx.fillRect(x, gy - h, w, h);
+    ctx.fillStyle = 'rgba(255,220,120,0.25)';
+    for (let wy = gy - h + 12; wy < gy - 10; wy += 22) {
+      for (let wx = x + 8; wx < x + w - 8; wx += 18) {
+        if (Math.random() < 0.6) ctx.fillRect(wx, wy, 7, 10);
+      }
+    }
+    ctx.fillStyle = 'rgba(20,28,48,0.55)';
+  }
+
+  function drawRing() {
+    if (state === STATE.MENU) return;
+    const gy = groundY();
+    const it = equippedItem();
+    const r = ring.r * it.window;
+    const x = ring.x;
+    const y = gy - 4;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+    // ground ellipse ring
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, 0.32);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,210,61,${0.55 + pulse * 0.4})`;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${0.3 + pulse * 0.3})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+    // beam
+    const grad = ctx.createLinearGradient(0, gy - 140, 0, gy);
+    grad.addColorStop(0, 'rgba(255,210,61,0)');
+    grad.addColorStop(1, `rgba(255,210,61,${0.10 + pulse * 0.08})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - r, gy - 140, r * 2, 140);
+  }
+
+  // Woofa — the good boy who throws. Reuses the dog art via paintDog().
+  function drawWoofa() {
+    if (state === STATE.MENU) return;
+    const gy = groundY();
+    const aiming = state === STATE.AIM && aim.active;
+    paintDog(thrower.x, gy, 1, {
+      run: performance.now() / 500,
+      mouthOpen: aiming ? 1 : 0.15,   // opens to fling the ball
+      leaping: false,
+      chasing: false,
+      tilt: aiming ? -0.1 : (state === STATE.FLY ? 0.08 : 0),
+      wag: 1,
+      cape: false,
+    });
+  }
+
+  // ---- Woofa: German pointer × staghound. Mostly black, white neck, black eye-mask, white muzzle ----
+  function paintDog(px, py, facing, pose) {
+    const gy = groundY();
+    const x = px;
+    const y = py;
+    const f = facing;            // 1 = right, -1 = left
+    const leaping = !!pose.leaping;
+    const chasing = !!pose.chasing;
+    const t = pose.run || 0;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(f, 1);
+
+    // ground shadow
+    const airborne = gy - y;
+    const shScale = clamp(1 - airborne / 260, 0.4, 1);
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(0, gy - y, 40 * shScale, 9 * shScale, 0, 0, 7);
+    ctx.fill();
+    ctx.restore();
+
+    const bodyTilt = (leaping ? -0.5 : (chasing ? 0.06 * Math.sin(t) : 0)) + (pose.tilt || 0);
+    ctx.rotate(bodyTilt);
+
+    const BLACK = '#1a1a1e';
+    const BLACKSOFT = '#26262c';
+    const WHITE = '#f3f1ea';
+
+    // ---- legs (animated) ----
+    ctx.strokeStyle = BLACK;
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    const legPhase = leaping ? 0 : Math.sin(t) ;
+    const legPhase2 = leaping ? 0 : Math.sin(t + Math.PI);
+    function leg(px, swing, tuck) {
+      const sw = leaping ? tuck : swing * 10;
+      ctx.beginPath();
+      ctx.moveTo(px, -20);
+      ctx.lineTo(px + sw, leaping ? -6 : 0);
+      ctx.stroke();
+    }
+    // back legs
+    leg(-26, legPhase, -14);
+    leg(-20, legPhase2, -8);
+    // front legs
+    leg(20, legPhase2, 18);
+    leg(28, legPhase, 26);
+
+    // ---- tail ----
+    ctx.strokeStyle = BLACK;
+    ctx.lineWidth = 6;
+    const tailWag = Math.sin(performance.now() / 90) * ((pose.wag || 0) > 0.5 ? 6 : 3);
+    ctx.beginPath();
+    ctx.moveTo(-34, -34);
+    ctx.quadraticCurveTo(-52, -44 + tailWag, -58, -30 + tailWag);
+    ctx.stroke();
+
+    // ---- body (mostly black) ----
+    ctx.fillStyle = BLACK;
+    ctx.beginPath();
+    ctx.ellipse(-6, -40, 34, 20, leaping ? -0.15 : 0, 0, 7);
+    ctx.fill();
+    // subtle top sheen
+    ctx.fillStyle = BLACKSOFT;
+    ctx.beginPath();
+    ctx.ellipse(-8, -46, 26, 10, 0, 0, 7);
+    ctx.fill();
+
+    // (Woofa doesn't wear the cape — the kids do)
+    if (pose.cape) drawCape(leaping, t);
+
+    // ---- white neck patch ----
+    ctx.fillStyle = WHITE;
+    ctx.beginPath();
+    ctx.moveTo(16, -52);
+    ctx.quadraticCurveTo(30, -40, 24, -22);
+    ctx.quadraticCurveTo(14, -26, 10, -40);
+    ctx.quadraticCurveTo(10, -50, 16, -52);
+    ctx.fill();
+
+    // ---- neck to head ----
+    ctx.fillStyle = BLACK;
+    ctx.beginPath();
+    ctx.moveTo(14, -54);
+    ctx.quadraticCurveTo(30, -66, 36, -58);
+    ctx.lineTo(30, -40);
+    ctx.quadraticCurveTo(20, -42, 14, -48);
+    ctx.fill();
+
+    // ---- head ----
+    const headX = 40, headY = -60;
+    // black skull (over the eyes / top of head)
+    ctx.fillStyle = BLACK;
+    ctx.beginPath();
+    ctx.ellipse(headX, headY, 18, 15, 0, 0, 7);
+    ctx.fill();
+
+    // ---- white muzzle / face ----
+    ctx.fillStyle = WHITE;
+    ctx.beginPath();
+    ctx.moveTo(headX + 2, headY - 2);
+    ctx.quadraticCurveTo(headX + 26, headY - 4, headX + 30, headY + 6);
+    ctx.quadraticCurveTo(headX + 26, headY + 16, headX + 6, headY + 14);
+    ctx.quadraticCurveTo(headX - 2, headY + 6, headX + 2, headY - 2);
+    ctx.fill();
+    // white blaze up the face
+    ctx.beginPath();
+    ctx.moveTo(headX + 6, headY - 12);
+    ctx.quadraticCurveTo(headX + 12, headY - 16, headX + 14, headY + 4);
+    ctx.quadraticCurveTo(headX + 8, headY + 6, headX + 6, headY - 12);
+    ctx.fill();
+
+    // ---- black eye mask over the eyes ----
+    ctx.fillStyle = BLACK;
+    ctx.beginPath();
+    ctx.ellipse(headX + 8, headY - 2, 8, 7, -0.2, 0, 7);
+    ctx.fill();
+
+    // ---- ear (floppy, black) ----
+    ctx.fillStyle = BLACKSOFT;
+    ctx.beginPath();
+    ctx.moveTo(headX - 6, headY - 8);
+    ctx.quadraticCurveTo(headX - 20, headY + 2, headX - 12, headY + 20);
+    ctx.quadraticCurveTo(headX - 4, headY + 12, headX - 2, headY - 2);
+    ctx.fill();
+
+    // ---- eye ----
+    ctx.fillStyle = '#0a0a0c';
+    ctx.beginPath();
+    ctx.arc(headX + 9, headY - 3, 2.6, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(headX + 10, headY - 4, 0.9, 0, 7);
+    ctx.fill();
+
+    // ---- nose ----
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(headX + 30, headY + 6, 3.4, 0, 7);
+    ctx.fill();
+
+    // ---- mouth (opens to fling the ball) ----
+    const mo = (pose.mouthOpen || 0) * 8;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(headX + 30, headY + 8);
+    ctx.quadraticCurveTo(headX + 20, headY + 10 + mo, headX + 8, headY + 12 + mo * 0.5);
+    ctx.stroke();
+    if (mo > 3) {
+      ctx.fillStyle = '#c0455a';
+      ctx.beginPath();
+      ctx.ellipse(headX + 16, headY + 12 + mo * 0.4, 6, mo * 0.5, 0, 0, 7);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ---- The two kids who chase the throws ----
+  function drawCatchers() {
+    if (state === STATE.MENU) return;
+    const gy = groundY();
+    const activeK = kids[activeKid];
+    const idleK = kids[1 - activeKid];
+    const s = dog.state;
+
+    // bystander kid — stands near the ring and reacts
+    drawKid(ring.x + 140, gy, -1, {
+      run: performance.now() / 620,
+      idle: true,
+      cheer: s === 'catchpose' || s === 'leap',
+    }, idleK);
+
+    // active kid — the runner
+    drawKid(dog.x, dog.y, dog.facing, {
+      run: dog.run,
+      reaching: (s === 'chase' || s === 'leap'),
+      leaping: s === 'leap',
+      holding: disc.caught && (s === 'leap' || s === 'catchpose' || s === 'rip'),
+      falling: s === 'fall',
+      fallT: dog.stateT,
+      crying: s === 'fall' && dog.onGround,
+      cheer: s === 'catchpose',
+      cape: isCapeOn(),
+    }, activeK);
+  }
+
+  function drawKid(px, py, facing, pose, k) {
+    const gy = groundY();
+    const airborne = gy - py;
+    const sh = clamp(1 - airborne / 240, 0.4, 1);
+
+    // shadow
+    ctx.save();
+    ctx.globalAlpha = 0.2; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(px, gy, 24 * sh, 6 * sh, 0, 0, 7); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.scale(facing, 1);
+
+    const h = k.height;
+    const legLen = 26 * h;
+    const torsoH = 30 * h;
+    const torsoW = 20 * k.chub;
+    const hipY = -legLen;
+    const shoulderY = hipY - torsoH;
+    const headR = 12 * h;
+    const headY = shoulderY - headR - 2;
+    const run = pose.run || 0;
+
+    if (pose.falling) ctx.rotate(clamp(pose.fallT * 0.16, 0, 1.4)); // tip forward onto face
+    else if (pose.leaping) ctx.rotate(-0.18);
+
+    // cape sits behind everything
+    if (pose.cape) drawKidCape(pose, shoulderY, hipY, torsoW);
+
+    // ---- legs (navy shorts) ----
+    ctx.strokeStyle = '#2b3a5a'; ctx.lineWidth = 6 * h; ctx.lineCap = 'round';
+    let swA, swB;
+    if (pose.falling) { swA = 16; swB = 26; }
+    else if (pose.leaping) { swA = 8; swB = -8; }
+    else if (pose.reaching) { swA = Math.sin(run) * 12; swB = Math.sin(run + Math.PI) * 12; }
+    else { swA = Math.sin(run) * 3; swB = Math.sin(run + Math.PI) * 3; }
+    function drawLeg(sw) {
+      const footY = pose.leaping ? hipY + legLen * 0.55 : 0;
+      ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(sw, footY); ctx.stroke();
+      ctx.fillStyle = '#ececf2';
+      ctx.beginPath(); ctx.ellipse(sw + 2, footY, 5 * h, 3 * h, 0, 0, 7); ctx.fill();
+    }
+    drawLeg(swA); drawLeg(swB);
+
+    // ---- torso (shirt) ----
+    ctx.fillStyle = k.shirt;
+    ctx.beginPath(); ctx.roundRect(-torsoW / 2, shoulderY, torsoW, torsoH + 4, 8); ctx.fill();
+
+    // ---- arms ----
+    ctx.strokeStyle = k.skin; ctx.lineWidth = 5.5 * h; ctx.lineCap = 'round';
+    const armY = shoulderY + 6;
+    function drawArm(dir) {
+      ctx.beginPath(); ctx.moveTo(dir * torsoW * 0.42, armY);
+      if (pose.holding || pose.leaping || pose.reaching || pose.cheer) ctx.lineTo(dir * torsoW * 0.5 + 8, headY - 8);
+      else if (pose.falling) ctx.lineTo(dir * (torsoW * 0.5 + 16), armY - 12);
+      else ctx.lineTo(dir * torsoW * 0.5, armY + 20 * h);
+      ctx.stroke();
+    }
+    drawArm(1); drawArm(-1);
+
+    // ---- head ----
+    ctx.fillStyle = k.skin;
+    ctx.beginPath(); ctx.arc(0, headY, headR, 0, 7); ctx.fill();
+    // ears
+    ctx.beginPath(); ctx.arc(-headR * 0.92, headY, 3 * h, 0, 7); ctx.arc(headR * 0.92, headY, 3 * h, 0, 7); ctx.fill();
+
+    // ---- hair ----
+    ctx.fillStyle = k.hair;
+    if (k.hairStyle === 'mop') {
+      ctx.beginPath();
+      ctx.arc(0, headY - 1, headR + 2.5, Math.PI * 0.98, Math.PI * 2.02, false);
+      ctx.quadraticCurveTo(headR + 4, headY + 4, headR - 2, headY + 6);
+      ctx.quadraticCurveTo(2, headY - headR, -headR + 2, headY + 5);
+      ctx.quadraticCurveTo(-headR - 3, headY, -headR - 1, headY - 1);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, headY - 1, headR + 1.5, Math.PI * 1.02, Math.PI * 1.98, false);
+      ctx.lineTo(headR - 2, headY - 2);
+      ctx.quadraticCurveTo(0, headY - headR - 4, -headR + 2, headY - 2);
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(headR * 0.15, headY - headR, 3 * h, 0, 7); ctx.fill(); // little tuft
+    }
+
+    // ---- face (features on the right, the facing side) ----
+    if (pose.crying) {
+      ctx.strokeStyle = '#3a2a20'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      // scrunched >< eyes
+      ctx.beginPath();
+      ctx.moveTo(headR * 0.15, headY - 4); ctx.lineTo(headR * 0.5, headY - 1);
+      ctx.moveTo(headR * 0.5, headY - 4); ctx.lineTo(headR * 0.15, headY - 1);
+      ctx.stroke();
+      // wailing mouth
+      ctx.fillStyle = '#7a2f38';
+      ctx.beginPath(); ctx.ellipse(headR * 0.4, headY + 5, 4, 5, 0, 0, 7); ctx.fill();
+      // tears
+      ctx.fillStyle = '#7fd4ff';
+      ctx.beginPath(); ctx.arc(headR * 0.15, headY + 6, 2, 0, 7); ctx.arc(headR * 0.65, headY + 6, 2, 0, 7); ctx.fill();
+    } else {
+      ctx.fillStyle = '#2a1c14';
+      ctx.beginPath(); ctx.arc(headR * 0.45, headY - 2, 2.2, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#7a4a3a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      if (k.cheeky) ctx.arc(headR * 0.4, headY + 2, 5, 0.05, Math.PI * 0.85);   // cheeky grin
+      else ctx.arc(headR * 0.45, headY + 4, 2.6, 0.1, Math.PI * 0.9);           // little smile
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawKidCape(pose, shoulderY, hipY, torsoW) {
+    const flow = Math.sin(performance.now() / 120) * 5;
+    ctx.save();
+    ctx.fillStyle = '#15151b';
+    ctx.beginPath();
+    ctx.moveTo(-torsoW * 0.3, shoulderY + 2);
+    ctx.quadraticCurveTo(-torsoW - 18, shoulderY + (pose.leaping ? -10 : flow), -torsoW - 8, hipY + 8 + (pose.leaping ? -6 : flow));
+    ctx.quadraticCurveTo(-torsoW * 0.5, hipY + 2, -torsoW * 0.3, shoulderY + 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawCape(leaping, t) {
+    const flow = Math.sin(performance.now() / 120) * 6;
+    ctx.save();
+    ctx.fillStyle = '#15151b';
+    ctx.strokeStyle = '#000';
+    ctx.beginPath();
+    ctx.moveTo(6, -54);
+    ctx.quadraticCurveTo(-40, -60 + (leaping ? -16 : flow), -54, -18 + (leaping ? -8 : flow));
+    ctx.quadraticCurveTo(-40, -30, -26, -18);
+    ctx.quadraticCurveTo(-30, -40, 6, -54);
+    ctx.fill();
+    // little bat scallops on the edge
+    ctx.fillStyle = '#0e0e13';
+    ctx.beginPath();
+    ctx.arc(-50, -20 + (leaping ? -8 : flow), 5, 0, 7);
+    ctx.arc(-40, -14, 5, 0, 7);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawDisc() {
+    if (state === STATE.MENU) return;
+    const it = equippedItem();
+    ctx.save();
+    ctx.translate(disc.x, disc.y);
+    ctx.rotate(disc.spin);
+    // depth scale: shrink as it flies "up"
+    const sz = it.size;
+    if (save.equipped === 'frisbee') {
+      // frisbee: ellipse disc
+      ctx.fillStyle = it.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, sz, sz * 0.45, 0, 0, 7);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, -1, sz * 0.6, sz * 0.26, 0, 0, 7);
+      ctx.stroke();
+    } else {
+      // ball
+      const grad = ctx.createRadialGradient(-sz * 0.3, -sz * 0.3, 1, 0, 0, sz);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.25, it.color);
+      grad.addColorStop(1, shade(it.color, -30));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, sz, 0, 7);
+      ctx.fill();
+      if (save.equipped === 'spiky') {
+        ctx.fillStyle = shade(it.color, -40);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * sz, Math.sin(a) * sz);
+          ctx.lineTo(Math.cos(a) * sz * 1.4, Math.sin(a) * sz * 1.4);
+          ctx.lineTo(Math.cos(a + 0.3) * sz, Math.sin(a + 0.3) * sz);
+          ctx.fill();
+        }
+      }
+      if (save.equipped === 'tennis') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(-sz * 0.3, 0, sz * 1.3, -0.9, 0.9);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.globalAlpha = clamp(p.life, 0, 1);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, 7);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawAimUI() {
+    const { dx, dy } = aimVector();
+    const pull = Math.hypot(dx, dy);
+    if (pull < 8) return;
+    const it = equippedItem();
+    const maxPull = Math.min(W, H) * 0.42;
+    const strength = clamp(pull / maxPull, 0, 1);
+    const speed = (9 + strength * 20) * it.power;
+    const ang = Math.atan2(dy, dx);
+    // predicted trajectory dots (screen space)
+    let x = disc.x - camX, y = disc.y;
+    let vx = Math.cos(ang) * speed, vy = Math.sin(ang) * speed;
+    const g = gravity * it.gravity;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < 26; i++) {
+      vy += g; vx += wind; x += vx; y += vy;
+      if (i % 2 === 0) {
+        ctx.globalAlpha = clamp(1 - i / 28, 0.15, 0.85);
+        ctx.beginPath();
+        ctx.arc(x, y, clamp(4 - i * 0.08, 1.5, 4), 0, 7);
+        ctx.fill();
+      }
+      if (y > groundY()) break;
+    }
+    ctx.globalAlpha = 1;
+
+    // power meter at the launch point
+    const lx = disc.x - camX, ly = disc.y;
+    ctx.save();
+    ctx.translate(lx, ly);
+    // pull-back line
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-Math.cos(ang) * pull * 0.4, -Math.sin(ang) * pull * 0.4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // strength arc
+    ctx.strokeStyle = `hsl(${lerp(140, 8, strength)}, 90%, 55%)`;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 26, -Math.PI * 0.5, -Math.PI * 0.5 + strength * Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // color shade helper
+  function shade(hex, amt) {
+    const c = hex.replace('#', '');
+    let r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+    r = clamp(r + amt, 0, 255); g = clamp(g + amt, 0, 255); b = clamp(b + amt, 0, 255);
+    return `rgb(${r|0},${g|0},${b|0})`;
+  }
+
+  // ---------- Cape state ----------
+  function isCapeOn() { return save.capeOn === true; }
+
+  // ---------- HUD / UI ----------
+  const hud = document.getElementById('hud');
+  const hudLevel = document.getElementById('hudLevel');
+  const hudCoins = document.getElementById('hudCoins');
+  const hudStreak = document.getElementById('hudStreak');
+  const toastEl = document.getElementById('toast');
+  const aimHintEl = document.getElementById('aimHint');
+
+  function updateHUD() {
+    hudLevel.textContent = `Lvl ${level} · ${sceneFor(level).name}`;
+    hudCoins.textContent = `🦴 ${save.coins}`;
+    hudStreak.textContent = `🔥 ${streak}`;
+  }
+  let toastTimer = null;
+  function toast(msg, color) {
+    toastEl.textContent = msg;
+    toastEl.style.color = color || '#fff';
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth;
+    toastEl.classList.add('show');
+  }
+  let aimHintShown = false;
+  function showAimHint() {
+    if (aimHintShown) { aimHintEl.classList.add('hidden'); return; }
+    aimHintEl.classList.remove('hidden');
+  }
+  function hideAimHint() { aimHintShown = true; aimHintEl.classList.add('hidden'); }
+
+  // ---------- Screens ----------
+  const startScreen = document.getElementById('startScreen');
+  const howScreen = document.getElementById('howScreen');
+  const shopScreen = document.getElementById('shopScreen');
+
+  document.getElementById('playBtn').onclick = startGame;
+  document.getElementById('howBtn').onclick = () => { startScreen.classList.add('hidden'); howScreen.classList.remove('hidden'); };
+  document.getElementById('howBack').onclick = () => { howScreen.classList.add('hidden'); startScreen.classList.remove('hidden'); };
+  document.getElementById('shopBtn').onclick = openShop;
+  document.getElementById('shopClose').onclick = closeShop;
+
+  function startGame() {
+    startScreen.classList.add('hidden');
+    howScreen.classList.add('hidden');
+    hud.classList.remove('hidden');
+    level = Math.min(save.maxLevel, SCENES.length * 3); // resume near where you were
+    level = 1; // fresh run each session for score; unlocks persist
+    sessionScore = 0; streak = 0; catchesThisLevel = 0;
+    configureLevel(level);
+    newThrow();
+    updateHUD();
+  }
+
+  // ---------- Shop ----------
+  const shopList = document.getElementById('shopList');
+  const shopCoinsEl = document.getElementById('shopCoins');
+
+  function openShop() {
+    if (state === STATE.FLY) return;
+    renderShop();
+    shopScreen.classList.remove('hidden');
+  }
+  function closeShop() { shopScreen.classList.add('hidden'); }
+
+  function renderShop() {
+    shopCoinsEl.textContent = save.coins;
+    shopList.innerHTML = '';
+
+    const order = ['tennis', 'frisbee', 'spiky', 'squishy'];
+    for (const key of order) {
+      const it = ITEMS[key];
+      const owned = !!save.owned[key];
+      const equipped = save.equipped === key;
+      const row = document.createElement('div');
+      row.className = 'shop-item' + (owned ? ' owned' : '');
+      let action;
+      if (equipped) action = `<span class="si-tag equipped">Equipped</span>`;
+      else if (owned) action = `<span class="si-tag equip" data-equip="${key}">Equip</span>`;
+      else action = `<button class="si-buy" data-buy="${key}" ${save.coins < it.cost ? 'disabled' : ''}>Buy 🦴${it.cost}</button>`;
+      row.innerHTML = `
+        <div class="si-emoji">${it.emoji}</div>
+        <div class="si-body">
+          <div class="si-name">${it.name}</div>
+          <div class="si-desc">${it.desc}</div>
+        </div>
+        <div class="si-action">${action}</div>`;
+      shopList.appendChild(row);
+    }
+
+    // Batman cape
+    const capeOwned = save.capeUnlocked;
+    const capeRow = document.createElement('div');
+    const capeLocked = level < CAPE.unlockLevel && !capeOwned && save.maxLevel < CAPE.unlockLevel;
+    capeRow.className = 'shop-item' + (capeOwned ? ' owned' : '') + (capeLocked ? ' locked' : '');
+    let capeAction;
+    if (capeOwned) {
+      capeAction = save.capeOn
+        ? `<span class="si-tag equip" data-cape="off">Take off</span>`
+        : `<span class="si-tag equip" data-cape="on">Wear it</span>`;
+    } else if (capeLocked) {
+      capeAction = `<span class="si-tag lockmsg">Reach Lvl ${CAPE.unlockLevel}</span>`;
+    } else {
+      capeAction = `<button class="si-buy" data-buycape="1" ${save.coins < CAPE.cost ? 'disabled' : ''}>Buy 🦴${CAPE.cost}</button>`;
+    }
+    capeRow.innerHTML = `
+      <div class="si-emoji">🦇</div>
+      <div class="si-body">
+        <div class="si-name">${CAPE.name}</div>
+        <div class="si-desc">${CAPE.desc}</div>
+      </div>
+      <div class="si-action">${capeAction}</div>`;
+    shopList.appendChild(capeRow);
+
+    // wire buttons
+    shopList.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => buyItem(b.dataset.buy));
+    shopList.querySelectorAll('[data-equip]').forEach(b => b.onclick = () => equipItem(b.dataset.equip));
+    shopList.querySelectorAll('[data-buycape]').forEach(b => b.onclick = buyCape);
+    shopList.querySelectorAll('[data-cape]').forEach(b => b.onclick = () => { save.capeOn = b.dataset.cape === 'on'; persist(); renderShop(); });
+  }
+
+  function buyItem(key) {
+    const it = ITEMS[key];
+    if (save.coins < it.cost) return;
+    save.coins -= it.cost;
+    save.owned[key] = true;
+    save.equipped = key;
+    persist(); updateHUD(); renderShop();
+  }
+  function equipItem(key) {
+    if (!save.owned[key]) return;
+    save.equipped = key;
+    resetDisc();
+    persist(); renderShop();
+  }
+  function buyCape() {
+    if (save.coins < CAPE.cost) return;
+    if (level < CAPE.unlockLevel && save.maxLevel < CAPE.unlockLevel) return;
+    save.coins -= CAPE.cost;
+    save.capeUnlocked = true;
+    save.capeOn = true;
+    persist(); updateHUD(); renderShop();
+  }
+
+  // ---------- boot ----------
+  updateHUD();
+  requestAnimationFrame(frame);
+
+  // Debug harness (only when the URL contains #debug). Inert in normal play.
+  if (typeof location !== 'undefined' && location.hash.indexOf('debug') !== -1) {
+    window.__wf = {
+      step(n) { for (let i = 0; i < (n || 1); i++) { update(1); render(); } },
+      resize,
+      play() { startGame(); },
+      throwUpRight() {
+        if (state !== STATE.AIM) return 'not-aiming:' + state;
+        aim.sx = 250; aim.sy = 500; aim.cx = 150; aim.cy = 620; aim.active = false;
+        launchFromAim();
+        return 'thrown';
+      },
+      throwAt(sx, sy, cx, cy) {
+        if (state !== STATE.AIM) return 'not-aiming:' + state;
+        aim.sx = sx; aim.sy = sy; aim.cx = cx; aim.cy = cy; aim.active = false;
+        launchFromAim();
+        return 'thrown';
+      },
+      setRing(x) { ring.x = x; dog.x = x; dog.targetX = x; },
+      forceAim() { state = STATE.AIM; resetDisc(); },
+      info() {
+        return { state, level, scene: sceneFor(level).name, dogState: dog.state,
+          discX: disc.x | 0, discY: disc.y | 0, caught: disc.caught, attempted: disc.attempted,
+          coins: save.coins, streak, activeKid, capeOn: !!save.capeOn };
+      },
+    };
+  }
+
+  // ---------- Service worker (PWA) ----------
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+})();

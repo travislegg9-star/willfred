@@ -1,0 +1,10 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
+
+# Local tooling
+node_modules/
+.vercel/
+.vite/
+dist/
