@@ -64,6 +64,13 @@
     squishy: { emoji: '🟣', name: 'Squishy Ball', cost: 850,  color: '#a06bff', size: 14,
                gravity: 0.9,  power: 1.08, window: 1.35, mult: 1.8,  rip: 0.04, bounce: 0.92,
                desc: 'Huge sweet spot, mega bounce, 1.8× bones. The luxury throw.' },
+    wreck:   { emoji: '⚫', name: 'Wrecking Ball', cost: 1400, color: '#5a5a66', size: 19,
+               gravity: 1.4, power: 0.98, window: 0.95, mult: 2.2, rip: 0, bounce: 0.15,
+               desc: 'A hunk of iron. Heavy and drops fast — throw hard and read the wind. Pays a huge 2.2×.' },
+    rocket:  { emoji: '🚀', name: 'Rocket', cost: 5000, color: '#d94b3a', size: 15,
+               gravity: 0.62, power: 1.45, window: 3, mult: 0, rip: 0, bounce: 0,
+               explosive: true, consumable: true,
+               desc: 'ONE use. Fire it at a kid and BOOM — blows them to bits. 💥 No bones, pure carnage.' },
   };
   const CAPE = { name: 'Batman Cape', cost: 1600, unlockLevel: 5,
                  desc: 'Your catcher becomes the hero the field deserves. +10% bones on every catch.' };
@@ -177,8 +184,8 @@
   }
 
   function resetDisc() {
-    disc.x = thrower.x + 30;   // launches from Woofa's mouth
-    disc.y = groundY() - 70;
+    disc.x = thrower.x + 18;    // launches from Woofa's raised paw (he stands up to throw)
+    disc.y = groundY() - 116;
     disc.vx = 0; disc.vy = 0; disc.spin = 0;
     disc.live = false; disc.landed = false; disc.caught = false; disc.attempted = false;
     thrower.handY = disc.y;
@@ -304,7 +311,7 @@
     // Catch check — when disc gets near the dog and near catch height
     const dogReach = 135;           // horizontal reach (tighter = precision matters)
     const nearDog = Math.abs(disc.x - dog.x) < dogReach;
-    const catchable = disc.y > gy - 230 && disc.vy > -2; // descending / low
+    const catchable = (disc.y > gy - 230 && disc.vy > -2) || it.explosive; // rocket detonates on approach
     if (nearDog && catchable && !disc.caught) {
       tryCatch();
       return;
@@ -330,6 +337,7 @@
 
   function tryCatch() {
     const it = equippedItem();
+    if (it.explosive) { doExplode(); return; }   // rocket — blow the kid to bits
     // how close to the sweet-spot ring did it come down?
     const missToRing = Math.abs(disc.x - ring.x);
     const perfectR = ring.r * it.window;
@@ -422,6 +430,38 @@
     setTimeout(advanceAfterCatch, 1500);
   }
 
+  // Rocket hit — blow the kid into pieces. No coins, pure carnage. Single use.
+  function doExplode() {
+    if (state !== STATE.FLY) return;
+    disc.caught = false; disc.live = false;
+    state = STATE.RESOLVE;
+    streak = 0;
+    dog.state = 'boom'; dog.stateT = 0;
+    spawnGibs(dog.x, dog.y - 40, kids[activeKid]);
+    spawnParticles(disc.x, disc.y, '#ff5a2a', 34, 13);
+    spawnParticles(disc.x, disc.y, '#ffd23d', 22, 10);
+    spawnParticles(disc.x, disc.y, '#888888', 16, 9);
+    shake = 16; slowmo = 0.5;
+    toast('💥 BOOM!', '#ff5a2a');
+    consumeRocket();
+    updateHUD();
+    setTimeout(newThrow, 1700);
+  }
+  function spawnGibs(x, y, k) {
+    const cols = [k.skin, k.shirt, k.hair, k.shorts, k.skinShade || k.skin];
+    for (let i = 0; i < 26; i++) {
+      const a = rand(0, Math.PI * 2), s = rand(3, 10);
+      particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 5, life: 1.4, color: cols[i % cols.length], r: rand(3, 7) });
+    }
+  }
+  function consumeRocket() {
+    if (save.owned.rocket) {
+      save.owned.rocket = false;
+      if (save.equipped === 'rocket') save.equipped = frisbeeOrTennis();
+      persist();
+    }
+  }
+
   function advanceAfterCatch() {
     if (catchesThisLevel >= CATCHES_TO_ADVANCE) {
       catchesThisLevel = 0;
@@ -443,6 +483,7 @@
     if (state !== STATE.FLY) return;
     state = STATE.RESOLVE;
     streak = 0;
+    if (save.equipped === 'rocket') { consumeRocket(); toast('The rocket flew wide! 🚀💨', '#93a2c4'); updateHUD(); setTimeout(newThrow, 1200); return; }
     const faceplant = dog.state === 'fall';
     if (!faceplant) { dog.state = 'idle'; dog.mouthOpen = 0; }
     const cries = ['Owwww my bones! 😭', 'Waaahh! 😭', 'My leg! 😭', "That's not fair! 😭"];
@@ -456,6 +497,7 @@
     if (state !== STATE.FLY) return;
     state = STATE.RESOLVE;
     streak = 0;
+    if (save.equipped === 'rocket') { consumeRocket(); toast('The rocket screamed off into the distance! 🚀', '#93a2c4'); updateHUD(); setTimeout(newThrow, 1300); return; }
     const sc = sceneFor(level);
     // On the rooftops, an overshoot means it's stuck up on a roof → lose it.
     const loseIt = sc.roofs && save.equipped !== 'tennis' && Math.random() < 0.8;
@@ -703,20 +745,78 @@
     ctx.fillRect(x - r, gy - 140, r * 2, 140);
   }
 
-  // Woofa — the good boy who throws. Reuses the dog art via paintDog().
+  // Woofa — the good boy who throws. Stands upright on two legs to throw,
+  // in his real colourway (black body, white belly/neck, white socks, white
+  // tail tip, black head/eye-mask, white snout).
   function drawWoofa() {
     if (state === STATE.MENU) return;
     const gy = groundY();
     const aiming = state === STATE.AIM && aim.active;
-    paintDog(thrower.x, gy, 1, {
-      run: performance.now() / 500,
-      mouthOpen: aiming ? 1 : 0.15,   // opens to fling the ball
-      leaping: false,
-      chasing: false,
-      tilt: aiming ? -0.1 : (state === STATE.FLY ? 0.08 : 0),
-      wag: 1,
-      cape: false,
-    });
+    const fly = state === STATE.FLY;
+    const BLACK = '#1a1a1e', WHITE = '#f3f1ea', SOFT = '#26262c';
+    const t = performance.now();
+    ctx.save();
+    ctx.translate(thrower.x, gy);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    // shadow
+    ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(0, 0, 26, 7, 0, 0, 7); ctx.fill(); ctx.restore();
+
+    // tail (behind) — black with white tip
+    const tw = Math.sin(t / 120) * 4;
+    ctx.strokeStyle = BLACK; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-14, -44); ctx.quadraticCurveTo(-36, -34 + tw, -32, -10 + tw); ctx.stroke();
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-33, -16 + tw); ctx.lineTo(-32, -10 + tw); ctx.stroke();
+
+    // back arm (behind torso)
+    ctx.strokeStyle = BLACK; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-3, -88); ctx.lineTo(-15, -64); ctx.stroke();
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-15, -70); ctx.lineTo(-15, -63); ctx.stroke();
+
+    // legs (two) — black thigh, white sock, white foot
+    ctx.lineWidth = 10;
+    function leg(x) {
+      ctx.strokeStyle = BLACK; ctx.beginPath(); ctx.moveTo(x * 0.5, -44); ctx.lineTo(x, -22); ctx.stroke();
+      ctx.strokeStyle = WHITE; ctx.beginPath(); ctx.moveTo(x, -22); ctx.lineTo(x, -2); ctx.stroke();
+      ctx.fillStyle = WHITE; ctx.beginPath(); ctx.ellipse(x + 3, -1, 7, 4, 0, 0, 7); ctx.fill();
+    }
+    leg(-9); leg(9);
+
+    // torso (upright) — black with white belly
+    ctx.fillStyle = BLACK; ctx.beginPath(); ctx.ellipse(0, -64, 21, 28, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.ellipse(7, -58, 9, 19, 0, 0, 7); ctx.fill();
+    // white neck ring
+    ctx.fillStyle = WHITE; ctx.beginPath(); ctx.ellipse(4, -92, 13, 9, 0, 0, 7); ctx.fill();
+
+    // head — black skull + eye-mask, white snout, floppy ear
+    const hx = 7, hy = -113;
+    ctx.fillStyle = BLACK; ctx.beginPath(); ctx.ellipse(hx, hy, 16, 15, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = SOFT; ctx.beginPath(); ctx.ellipse(hx - 10, hy - 6, 6, 11, -0.5, 0, 7); ctx.fill(); // ear
+    ctx.fillStyle = WHITE; // snout
+    ctx.beginPath();
+    ctx.moveTo(hx + 5, hy - 9);
+    ctx.quadraticCurveTo(hx + 25, hy - 9, hx + 28, hy + 3);
+    ctx.quadraticCurveTo(hx + 24, hy + 14, hx + 6, hy + 12);
+    ctx.quadraticCurveTo(hx - 1, hy + 2, hx + 5, hy - 9);
+    ctx.fill();
+    ctx.fillStyle = '#0a0a0c'; ctx.beginPath(); ctx.arc(hx + 7, hy - 3, 2.5, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(hx + 8, hy - 4, 0.9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(hx + 28, hy + 3, 3.2, 0, 7); ctx.fill(); // nose
+    const mo = aiming ? 5 : 1;
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(hx + 28, hy + 5); ctx.quadraticCurveTo(hx + 18, hy + 8 + mo, hx + 7, hy + 10); ctx.stroke();
+
+    // front (throwing) arm + paw holding the ball
+    const hpx = fly ? 34 : 18, hpy = fly ? -130 : -116;
+    ctx.strokeStyle = BLACK; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(3, -88); ctx.quadraticCurveTo(hpx * 0.5, -104, hpx, hpy); ctx.stroke();
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(hpx - 3, hpy + 5); ctx.lineTo(hpx, hpy); ctx.stroke();
+
+    ctx.restore();
   }
 
   // ---- Woofa: German pointer × staghound. Mostly black, white neck, black eye-mask, white muzzle ----
@@ -904,8 +1004,8 @@
       cheer: s === 'catchpose' || s === 'leap',
     }, idleK);
 
-    // active kid — the runner
-    drawKid(dog.x, dog.y, dog.facing, {
+    // active kid — the runner (gone in a puff if the rocket got them)
+    if (s !== 'boom') drawKid(dog.x, dog.y, dog.facing, {
       run: dog.run,
       reaching: (s === 'chase' || s === 'leap'),
       leaping: s === 'leap',
@@ -1094,39 +1194,50 @@
         ctx.lineTo(ex + 1, headCy + 1 + tl); ctx.quadraticCurveTo(ex, headCy + 3 + tl, ex - 1, headCy + 1 + tl); ctx.closePath(); ctx.fill();
       });
     } else {
-      const wide = pose.falling ? 1.5 : 1;   // shocked eyes mid-fall
-      // eye
-      blob(headR * 0.4, headCy - 1, 3.4 * wide, 4 * wide, '#fff');
+      const wide = pose.falling ? 1.35 : 1;
+      const ex = headR * 0.34, ey = headCy - 1, er = 3 * wide;
+      // two forward-facing eye whites
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.ellipse(-ex, ey, er, er * 1.15, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(ex, ey, er, er * 1.15, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = OUT; ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.ellipse(-ex, ey, er, er * 1.15, 0, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(ex, ey, er, er * 1.15, 0, 0, 7); ctx.stroke();
+      // pupils (glance toward the facing side)
+      const px = pose.falling ? 0 : er * 0.42;
       ctx.fillStyle = '#20140c';
-      ctx.beginPath(); ctx.arc(headR * 0.5, headCy - 0.5, 1.9, 0, 7); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(headR * 0.56, headCy - 1.8, 0.8, 0, 7); ctx.fill();
-      // brow
-      ctx.strokeStyle = OUT; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(-ex + px, ey, er * 0.55, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + px, ey, er * 0.55, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(-ex + px + 0.8, ey - 0.9, 0.7, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex + px + 0.8, ey - 0.9, 0.7, 0, 7); ctx.fill();
+      // brows
+      ctx.strokeStyle = OUT; ctx.lineWidth = 1.4;
+      const bw = pose.falling ? -3 : 0;
       ctx.beginPath();
-      if (pose.falling) { ctx.moveTo(headR * 0.15, headCy - 7); ctx.quadraticCurveTo(headR * 0.45, headCy - 6, headR * 0.72, headCy - 7.5); }
-      else { ctx.moveTo(headR * 0.12, headCy - 6.5); ctx.quadraticCurveTo(headR * 0.42, headCy - 8, headR * 0.72, headCy - 6); }
+      ctx.moveTo(-ex - 3, ey - er - 2 + bw); ctx.lineTo(-ex + 3, ey - er - 3 + bw);
+      ctx.moveTo(ex - 3, ey - er - 3 + bw); ctx.lineTo(ex + 3, ey - er - 2 + bw);
       ctx.stroke();
-      // nose
-      ctx.beginPath(); ctx.moveTo(headR * 0.92, headCy - 1); ctx.quadraticCurveTo(headR * 1.06, headCy + 2, headR * 0.86, headCy + 3.2); ctx.lineWidth = 1.4; ctx.stroke();
+      // little nose
+      ctx.fillStyle = k.skinShade || k.skin;
+      ctx.beginPath(); ctx.ellipse(headR * 0.06, headCy + 4, 1.7, 1.3, 0, 0, 7); ctx.fill();
       // mouth
-      ctx.lineWidth = 1.8; ctx.strokeStyle = OUT;
-      if (pose.falling) { blob(headR * 0.5, headCy + 6, 2.8, 3.2, '#8a3140'); }        // shocked O
+      ctx.strokeStyle = OUT; ctx.lineWidth = 1.7; ctx.lineCap = 'round';
+      if (pose.falling) { blob(0, headCy + 7.5, 2.8, 3.2, '#8a3140'); }
       else if (k.cheeky) {
-        ctx.beginPath(); ctx.moveTo(headR * 0.12, headCy + 6); ctx.quadraticCurveTo(headR * 0.52, headCy + 12, headR * 0.86, headCy + 5); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(headR * 0.22, headCy + 7); ctx.quadraticCurveTo(headR * 0.5, headCy + 9.5, headR * 0.74, headCy + 6.5);
-        ctx.fillStyle = '#fff'; ctx.fill(); // teeth
+        ctx.beginPath(); ctx.arc(0, headCy + 4, 5, 0.1, Math.PI - 0.1); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, headCy + 4.6, 3.4, 0.35, Math.PI - 0.35); ctx.fill();
       } else {
-        ctx.beginPath(); ctx.arc(headR * 0.46, headCy + 5, 3, 0.15, Math.PI * 0.82); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, headCy + 4, 3.2, 0.2, Math.PI - 0.2); ctx.stroke();
       }
-      // freckles + blush for the young one
+      // freckles + blush for the young one (both cheeks)
       if (k.freckles) {
         ctx.save(); ctx.globalAlpha = 0.4; ctx.fillStyle = '#ff9a8a';
-        ctx.beginPath(); ctx.ellipse(headR * 0.55, headCy + 3, 3.2, 2.2, 0, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(-ex, headCy + 5, 2.6, 1.8, 0, 0, 7); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(ex, headCy + 5, 2.6, 1.8, 0, 0, 7); ctx.fill();
         ctx.restore();
         ctx.fillStyle = k.skinShade;
-        [[headR * 0.42, headCy + 3], [headR * 0.6, headCy + 2.2], [headR * 0.55, headCy + 4.4]].forEach((p) => {
-          ctx.beginPath(); ctx.arc(p[0], p[1], 0.7, 0, 7); ctx.fill();
-        });
+        [[-ex, headCy + 5], [ex, headCy + 5], [ex + 3, headCy + 3.5], [-ex - 3, headCy + 3.5]].forEach((p) => { ctx.beginPath(); ctx.arc(p[0], p[1], 0.7, 0, 7); ctx.fill(); });
       }
     }
 
@@ -1169,49 +1280,53 @@
   function drawDisc() {
     if (state === STATE.MENU) return;
     const it = equippedItem();
+    const sz = it.size;
     ctx.save();
     ctx.translate(disc.x, disc.y);
-    ctx.rotate(disc.spin);
-    // depth scale: shrink as it flies "up"
-    const sz = it.size;
-    if (save.equipped === 'frisbee') {
-      // frisbee: ellipse disc
+
+    if (save.equipped === 'rocket') {
+      // rocket — points the way it's flying, flame trailing
+      ctx.rotate(Math.atan2(disc.vy, disc.vx || 1));
+      const fl = 10 + Math.random() * 12;
+      ctx.fillStyle = '#ffb03a'; ctx.beginPath(); ctx.moveTo(-sz, 0); ctx.lineTo(-sz - fl, 5); ctx.lineTo(-sz - fl, -5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff5a2a'; ctx.beginPath(); ctx.moveTo(-sz, 0); ctx.lineTo(-sz - fl * 0.6, 2.6); ctx.lineTo(-sz - fl * 0.6, -2.6); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c93a2a'; // fins
+      ctx.beginPath(); ctx.moveTo(-sz, -sz * 0.35); ctx.lineTo(-sz - 5, -sz * 0.85); ctx.lineTo(-sz + 6, -sz * 0.35); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-sz, sz * 0.35); ctx.lineTo(-sz - 5, sz * 0.85); ctx.lineTo(-sz + 6, sz * 0.35); ctx.fill();
+      ctx.fillStyle = '#ececef'; ctx.beginPath(); ctx.ellipse(0, 0, sz, sz * 0.42, 0, 0, 7); ctx.fill(); // body
+      ctx.fillStyle = '#d94b3a'; ctx.beginPath(); ctx.moveTo(sz * 0.55, -sz * 0.42); ctx.quadraticCurveTo(sz * 1.25, 0, sz * 0.55, sz * 0.42); ctx.closePath(); ctx.fill(); // nose
+      ctx.fillStyle = '#bfe6ff'; ctx.beginPath(); ctx.arc(-sz * 0.1, 0, sz * 0.2, 0, 7); ctx.fill(); // window
+    } else if (save.equipped === 'frisbee') {
+      // frisbee floats flat like a real frisbee — no tumble, just a gentle bob
+      const bob = Math.sin(performance.now() / 120) * 1.5;
       ctx.fillStyle = it.color;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, sz, sz * 0.45, 0, 0, 7);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(0, -1, sz * 0.6, sz * 0.26, 0, 0, 7);
-      ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, bob, sz, sz * 0.42, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, bob - 1, sz * 0.6, sz * 0.24, 0, 0, 7); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      ctx.beginPath(); ctx.ellipse(-sz * 0.35, bob - 2, sz * 0.3, sz * 0.12, 0, 0, 7); ctx.fill();
     } else {
-      // ball
+      // balls spin
+      ctx.rotate(disc.spin);
       const grad = ctx.createRadialGradient(-sz * 0.3, -sz * 0.3, 1, 0, 0, sz);
-      grad.addColorStop(0, '#ffffff');
-      grad.addColorStop(0.25, it.color);
-      grad.addColorStop(1, shade(it.color, -30));
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(0, 0, sz, 0, 7);
-      ctx.fill();
+      grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.25, it.color); grad.addColorStop(1, shade(it.color, -30));
+      ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, sz, 0, 7); ctx.fill();
       if (save.equipped === 'spiky') {
         ctx.fillStyle = shade(it.color, -40);
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
-          ctx.beginPath();
-          ctx.moveTo(Math.cos(a) * sz, Math.sin(a) * sz);
+          ctx.beginPath(); ctx.moveTo(Math.cos(a) * sz, Math.sin(a) * sz);
           ctx.lineTo(Math.cos(a) * sz * 1.4, Math.sin(a) * sz * 1.4);
-          ctx.lineTo(Math.cos(a + 0.3) * sz, Math.sin(a + 0.3) * sz);
-          ctx.fill();
+          ctx.lineTo(Math.cos(a + 0.3) * sz, Math.sin(a + 0.3) * sz); ctx.fill();
         }
-      }
-      if (save.equipped === 'tennis') {
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(-sz * 0.3, 0, sz * 1.3, -0.9, 0.9);
-        ctx.stroke();
+      } else if (save.equipped === 'tennis') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(-sz * 0.3, 0, sz * 1.3, -0.9, 0.9); ctx.stroke();
+      } else if (save.equipped === 'wreck') {
+        ctx.strokeStyle = '#2c2c34'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, sz, 0, 7); ctx.stroke();
+        ctx.fillStyle = '#3a3a44';
+        for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; ctx.beginPath(); ctx.arc(Math.cos(a) * sz * 0.62, Math.sin(a) * sz * 0.62, 1.9, 0, 7); ctx.fill(); }
+        ctx.fillStyle = '#8a8a94'; ctx.beginPath(); ctx.arc(0, -sz, 3.4, 0, 7); ctx.fill(); // chain ring nub
       }
     }
     ctx.restore();
@@ -1353,7 +1468,7 @@
     shopCoinsEl.textContent = save.coins;
     shopList.innerHTML = '';
 
-    const order = ['tennis', 'frisbee', 'spiky', 'squishy'];
+    const order = ['tennis', 'frisbee', 'spiky', 'squishy', 'wreck'];
     for (const key of order) {
       const it = ITEMS[key];
       const owned = !!save.owned[key];
@@ -1373,6 +1488,25 @@
         <div class="si-action">${action}</div>`;
       shopList.appendChild(row);
     }
+
+    // Rocket — one-use consumable
+    const rocket = ITEMS.rocket;
+    const rocketRow = document.createElement('div');
+    const armed = !!save.owned.rocket;
+    const rEquipped = save.equipped === 'rocket';
+    rocketRow.className = 'shop-item' + (armed ? ' owned' : '');
+    let rAction;
+    if (rEquipped) rAction = `<span class="si-tag equipped">Armed 💥</span>`;
+    else if (armed) rAction = `<span class="si-tag equip" data-equip="rocket">Arm it</span>`;
+    else rAction = `<button class="si-buy" data-buyrocket="1" ${save.coins < rocket.cost ? 'disabled' : ''}>Buy 🦴${rocket.cost}</button>`;
+    rocketRow.innerHTML = `
+      <div class="si-emoji">${rocket.emoji}</div>
+      <div class="si-body">
+        <div class="si-name">${rocket.name} <span class="gc-tag-new" style="background:#ff5a2a;color:#2a0d05">1 USE</span></div>
+        <div class="si-desc">${rocket.desc}</div>
+      </div>
+      <div class="si-action">${rAction}</div>`;
+    shopList.appendChild(rocketRow);
 
     // Batman cape
     const capeOwned = save.capeUnlocked;
@@ -1402,6 +1536,7 @@
     shopList.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => buyItem(b.dataset.buy));
     shopList.querySelectorAll('[data-equip]').forEach(b => b.onclick = () => equipItem(b.dataset.equip));
     shopList.querySelectorAll('[data-buycape]').forEach(b => b.onclick = buyCape);
+    shopList.querySelectorAll('[data-buyrocket]').forEach(b => b.onclick = buyRocket);
     shopList.querySelectorAll('[data-cape]').forEach(b => b.onclick = () => { save.capeOn = b.dataset.cape === 'on'; persist(); renderShop(); });
   }
 
@@ -1418,6 +1553,14 @@
     save.equipped = key;
     resetDisc();
     persist(); renderShop();
+  }
+  function buyRocket() {
+    if (save.coins < ITEMS.rocket.cost) return;
+    save.coins -= ITEMS.rocket.cost;
+    save.owned.rocket = true;
+    save.equipped = 'rocket';
+    resetDisc();
+    persist(); updateHUD(); renderShop();
   }
   function buyCape() {
     if (save.coins < CAPE.cost) return;
