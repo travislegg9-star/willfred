@@ -275,14 +275,14 @@
     // snakes: bodies first (far to near not critical), then heads
     const alive = snakes.filter((s) => !s.dead);
     for (const s of alive) if (!s.isPlayer) drawBody(s);
-    drawBody(player);
+    if (player) drawBody(player);
     for (const s of alive) if (!s.isPlayer) drawHead(s);
-    drawHead(player);
+    if (player) drawHead(player);
   }
 
   function drawBody(s) {
+    if (!s || s.points.length < 2) return;
     const r = radiusFor(s.size) * cam.zoom;
-    if (s.points.length < 2) return;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
     let started = false;
@@ -304,6 +304,7 @@
   }
 
   function drawHead(s) {
+    if (!s || !s.points.length) return;
     const p = worldToScreen(s.points[0].x, s.points[0].y);
     const r = radiusFor(s.size) * cam.zoom * 1.5;
     ctx.save();
@@ -400,7 +401,7 @@
   function frame(now) {
     let dt = (now - lastT) / 16.6667; lastT = now;
     dt = clamp(dt, 0, 2.5);
-    update(dt); render();
+    try { update(dt); render(); } catch (e) { /* never let one bad frame kill the loop */ }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -408,6 +409,10 @@
   // debug hook (inert unless #debug)
   if (location.hash.indexOf('debug') !== -1) {
     window.__snake = { reset, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return { running, size: player && player.size | 0, snakes: snakes.filter(s => !s.dead).length, food: food.length, dead: player && player.dead }; } };
+      info() { return { running, size: player && player.size | 0, snakes: snakes.filter(s => !s.dead).length, food: food.length, dead: player && player.dead }; },
+      // testing: steer toward a world point, and drop food right in front of the head
+      steerTo(wx, wy) { steering = true; const h = player.points[0]; const a = Math.atan2(wy - h.y, wx - h.x); pointer.x = W / 2 + Math.cos(a) * 200; pointer.y = H / 2 + Math.sin(a) * 200; },
+      dropFoodAhead() { const h = player.points[0]; spawnFood(h.x + Math.cos(player.angle) * 20, h.y + Math.sin(player.angle) * 20); },
+      probe() { const h = player.points[0]; return { angle: +player.angle.toFixed(2), size: +player.size.toFixed(1), hx: h.x | 0, hy: h.y | 0, dead: player.dead }; } };
   }
 })();
