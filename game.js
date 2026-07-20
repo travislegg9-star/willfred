@@ -73,11 +73,16 @@
 
   // ---------- Scenes ----------
   const SCENES = [
-    { name: 'Backyard',   sky: ['#7fc7ff', '#cdeaff'], ground: '#5aa64a', groundDark: '#3f7d33', accent: '#6fbf5c', wind: 0 },
-    { name: 'The Park',   sky: ['#63b8ff', '#bfe6ff'], ground: '#4f9e46', groundDark: '#377a30', accent: '#63b055', wind: 0.02 },
-    { name: 'The Beach',  sky: ['#ffd98a', '#ffeecb'], ground: '#e9d29a', groundDark: '#cbb073', accent: '#f0dca8', wind: 0.05 },
-    { name: 'Rooftops',   sky: ['#2b3c66', '#61789e'], ground: '#4a5570', groundDark: '#333c52', accent: '#5b6788', wind: 0.07, roofs: true },
-    { name: 'Snow Field', sky: ['#c3d6ea', '#eef5fb'], ground: '#eef4fb', groundDark: '#cdd9e8', accent: '#dbe6f2', wind: 0.09 },
+    { name: 'Backyard',   sky: ['#7fc7ff', '#cdeaff'], ground: '#5aa64a', groundDark: '#3f7d33', accent: '#6fbf5c' },
+    { name: 'The Park',   sky: ['#63b8ff', '#bfe6ff'], ground: '#4f9e46', groundDark: '#377a30', accent: '#63b055' },
+    { name: 'Playground', sky: ['#8fd0ff', '#d8f0ff'], ground: '#c98f5a', groundDark: '#a2703f', accent: '#e0a86e' },
+    { name: 'The Beach',  sky: ['#ffd98a', '#ffeecb'], ground: '#e9d29a', groundDark: '#cbb073', accent: '#f0dca8' },
+    { name: 'The Oval',   sky: ['#5fb0f0', '#c6e8ff'], ground: '#469b52', groundDark: '#2f7a3c', accent: '#5cc06a' },
+    { name: 'Rooftops',   sky: ['#2b3c66', '#61789e'], ground: '#4a5570', groundDark: '#333c52', accent: '#5b6788', roofs: true },
+    { name: 'The Forest', sky: ['#3f6b52', '#8fbf9c'], ground: '#3a6b3f', groundDark: '#274a2b', accent: '#4f8f57' },
+    { name: 'The Outback',sky: ['#ffb15c', '#ffe0a8'], ground: '#c76a3a', groundDark: '#9c4f28', accent: '#e08a52' },
+    { name: 'Night Match',sky: ['#12193a', '#2a3566'], ground: '#3d6b45', groundDark: '#2a4a30', accent: '#4f8f57', roofs: true },
+    { name: 'Snow Field', sky: ['#c3d6ea', '#eef5fb'], ground: '#eef4fb', groundDark: '#cdd9e8', accent: '#dbe6f2' },
   ];
   const sceneFor = (lvl) => SCENES[(lvl - 1) % SCENES.length];
 
@@ -746,18 +751,19 @@
     const BLACKSOFT = '#26262c';
     const WHITE = '#f3f1ea';
 
-    // ---- legs (animated) ----
-    ctx.strokeStyle = BLACK;
+    // ---- legs (animated) — black with white socks on the lower half ----
     ctx.lineWidth = 7;
     ctx.lineCap = 'round';
-    const legPhase = leaping ? 0 : Math.sin(t) ;
+    const legPhase = leaping ? 0 : Math.sin(t);
     const legPhase2 = leaping ? 0 : Math.sin(t + Math.PI);
     function leg(px, swing, tuck) {
       const sw = leaping ? tuck : swing * 10;
-      ctx.beginPath();
-      ctx.moveTo(px, -20);
-      ctx.lineTo(px + sw, leaping ? -6 : 0);
-      ctx.stroke();
+      const footY = leaping ? -6 : 0;
+      const mx = px + sw * 0.45, my = (-20 + footY) * 0.5;
+      ctx.strokeStyle = BLACK;
+      ctx.beginPath(); ctx.moveTo(px, -20); ctx.lineTo(mx, my); ctx.stroke();
+      ctx.strokeStyle = WHITE;  // white sock
+      ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(px + sw, footY); ctx.stroke();
     }
     // back legs
     leg(-26, legPhase, -14);
@@ -766,13 +772,18 @@
     leg(20, legPhase2, 18);
     leg(28, legPhase, 26);
 
-    // ---- tail ----
-    ctx.strokeStyle = BLACK;
+    // ---- tail — black with a white tip ----
     ctx.lineWidth = 6;
     const tailWag = Math.sin(performance.now() / 90) * ((pose.wag || 0) > 0.5 ? 6 : 3);
+    ctx.strokeStyle = BLACK;
     ctx.beginPath();
     ctx.moveTo(-34, -34);
     ctx.quadraticCurveTo(-52, -44 + tailWag, -58, -30 + tailWag);
+    ctx.stroke();
+    ctx.strokeStyle = WHITE;   // white tail tip
+    ctx.beginPath();
+    ctx.moveTo(-55, -36 + tailWag);
+    ctx.lineTo(-58, -30 + tailWag);
     ctx.stroke();
 
     // ---- body (mostly black) ----

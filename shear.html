@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Woofa Shearing</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <div id="shearHud" class="hud">
+    <div class="hud-pill">⏱️ <span id="shTime">0.0s</span></div>
+    <div class="hud-pill">✂️ <span id="shPct">0%</span></div>
+    <div class="hud-pill">🏆 <span id="shBest">—</span></div>
+  </div>
+
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo">
+        <span class="logo-throw" style="animation:none">✂️</span>
+        <h1>WOOFA<span>SHEARING</span></h1>
+      </div>
+      <p class="snake-help">
+        Woofa's grown a huge woolly coat.<br>
+        <b>Drag the clippers</b> back and forth over him to shear it all off.<br>
+        Go as <b>fast as you can</b> — the timer starts on your first stroke and your
+        <b>best time</b> is saved. His real colours show through underneath.
+      </p>
+      <button class="btn btn-primary" id="shearPlay">SHEAR!</button>
+    </div>
+  </div>
+
+  <div id="overScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>Shorn! ✂️🐑</h2>
+      <p class="tagline">Time: <b id="overTime" style="color:var(--good)">0s</b><br>Best: <b id="overBest" style="color:var(--accent-2)">0s</b></p>
+      <button class="btn btn-primary" id="shearAgain">Shear again</button>
+      <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
+    </div>
+  </div>
+
+  <script src="shear.js"></script>
+</body>
+</html>

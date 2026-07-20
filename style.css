@@ -310,3 +310,8 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
   user-select: none;
 }
 .boost-btn.on { transform: scale(0.92); background: radial-gradient(circle at 35% 30%, rgba(88,224,138,0.6), rgba(11,18,32,0.85)); border-color: var(--good); }
+
+/* new game-card accents */
+.gc-sheep .gc-emoji { background: rgba(255, 255, 255, 0.10); }
+.gc-shear .gc-emoji { background: rgba(255, 210, 61, 0.14); }
+.gc-sheep .gc-go, .gc-shear .gc-go { color: var(--accent-2); }

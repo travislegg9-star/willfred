@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Sheep Chase</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <div id="sheepHud" class="hud">
+    <div class="hud-pill">🥏 <span id="shFrisbees">0/0</span></div>
+    <div class="hud-pill" id="shLives">❤️❤️❤️</div>
+    <div class="hud-pill">🐑 <span id="shRound">R1</span></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo">
+        <span class="logo-throw" style="animation:none">🐑</span>
+        <h1>SHEEP<span>CHASE</span></h1>
+      </div>
+      <p class="snake-help">
+        <b>Drag</b> anywhere to run the boy around the paddock.<br>
+        <b>Grab frisbees</b> for Woofa — hit the round target.<br>
+        The <b>sheep hunt you</b> and gobble frisbees first, so be quick.<br>
+        Get caught <b>3 times</b> and it's over. Rounds get meaner.
+      </p>
+      <button class="btn btn-primary" id="sheepPlay">PLAY</button>
+    </div>
+  </div>
+
+  <div id="overScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>Caught! 🐑</h2>
+      <p class="tagline">You reached <b id="overRound" style="color:var(--good)">1</b> round(s)<br>Best: <b id="overBest" style="color:var(--accent-2)">0</b></p>
+      <button class="btn btn-primary" id="sheepAgain">Play again</button>
+      <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
+    </div>
+  </div>
+
+  <script src="sheep.js"></script>
+</body>
+</html>

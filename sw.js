@@ -1,13 +1,17 @@
 /* Woofa's Games — offline service worker. Cache-first for the app shell. */
-const CACHE = 'woofa-games-v3';
+const CACHE = 'woofa-games-v4';
 const ASSETS = [
   './',
   './index.html',
   './fetch.html',
   './snake.html',
+  './sheep.html',
+  './shear.html',
   './style.css',
   './game.js',
   './snake.js',
+  './sheep.js',
+  './shear.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-maskable.svg',
