@@ -145,6 +145,12 @@
     }
   }
 
+  // Every throw has wind now — moderate, grows with the level. You read the
+  // gauge and aim off to beat it (but it's always beatable).
+  function windForLevel(step) {
+    return (Math.random() < 0.5 ? -1 : 1) * (0.028 + step * 0.011);
+  }
+
   // ---------- Level setup ----------
   function configureLevel(lvl) {
     const sc = sceneFor(lvl);
@@ -152,9 +158,9 @@
     const step = lvl - 1;
     worldWidth = 1200 + step * 260;
     ring.x = clamp(560 + step * 150, 520, worldWidth - 220);
-    ring.r = clamp(78 - step * 3.5, 40, 78);
+    ring.r = clamp(62 - step * 3.5, 28, 62);   // tighter sweet-spot
     gravity = 0.5;
-    wind = (sc.wind || 0) * (Math.random() < 0.5 ? -1 : 1) * (0.6 + step * 0.12);
+    wind = windForLevel(step);
     camX = 0;
     dog.x = ring.x + rand(-40, 40);
     dog.targetX = dog.x;
@@ -291,7 +297,7 @@
     const gy = groundY();
 
     // Catch check — when disc gets near the dog and near catch height
-    const dogReach = 150;           // horizontal reach
+    const dogReach = 135;           // horizontal reach (tighter = precision matters)
     const nearDog = Math.abs(disc.x - dog.x) < dogReach;
     const catchable = disc.y > gy - 230 && disc.vy > -2; // descending / low
     if (nearDog && catchable && !disc.caught) {
@@ -322,7 +328,7 @@
     // how close to the sweet-spot ring did it come down?
     const missToRing = Math.abs(disc.x - ring.x);
     const perfectR = ring.r * it.window;
-    const goodR = perfectR + 130;
+    const goodR = perfectR + 110;
 
     let quality;
     if (missToRing <= perfectR) quality = 'perfect';
@@ -465,8 +471,7 @@
   function newThrow() {
     // swap which kid is up, re-roll wind, reset positions
     activeKid = 1 - activeKid;
-    const sc = sceneFor(level);
-    wind = (sc.wind || 0) * (Math.random() < 0.5 ? -1 : 1) * (0.6 + (level - 1) * 0.12);
+    wind = windForLevel(level - 1);
     dog.x = ring.x + rand(-30, 30);
     dog.y = groundY();
     dog.targetX = dog.x;
@@ -562,7 +567,31 @@
     ctx.restore();
 
     if (state === STATE.AIM && aim.active) drawAimUI();
+    drawWindIndicator();
 
+    ctx.restore();
+  }
+
+  // Wind gauge near the top — green = tailwind (carries it), orange = headwind (fights you)
+  function drawWindIndicator() {
+    if (state === STATE.MENU) return;
+    const cx = W / 2, cy = 104;
+    const mag = clamp(Math.abs(wind) / 0.22, 0.18, 1);
+    const dir = wind >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '700 11px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(dir > 0 ? 'WIND ▸ tail' : 'WIND ◂ head', cx, cy - 12);
+    const len = 24 + mag * 46;
+    const col = dir > 0 ? '#58e08a' : '#ff8a3d';
+    ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - dir * len / 2, cy); ctx.lineTo(cx + dir * len / 2, cy); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + dir * len / 2, cy); ctx.lineTo(cx + dir * (len / 2 - 9), cy - 6);
+    ctx.moveTo(cx + dir * len / 2, cy); ctx.lineTo(cx + dir * (len / 2 - 9), cy + 6);
+    ctx.stroke();
     ctx.restore();
   }
 

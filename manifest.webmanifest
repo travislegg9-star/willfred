@@ -1,7 +1,7 @@
 {
-  "name": "Woofa Fetch",
+  "name": "Woofa's Games",
   "short_name": "Woofa",
-  "description": "Woofa throws — flick it and the kids fly for the hero catch.",
+  "description": "A pack of tiny games starring Woofa — Fetch, Snake, and more.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

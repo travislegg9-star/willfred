@@ -7,71 +7,59 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>Woofa Fetch</title>
+  <title>Woofa's Games</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <canvas id="game"></canvas>
+  <div class="home">
+    <header class="home-head">
+      <div class="home-logo">🐕</div>
+      <h1 class="home-title">WOOFA'S<span>GAMES</span></h1>
+      <p class="home-sub">A pack of tiny games starring one very good boy.</p>
+    </header>
 
-  <!-- HUD -->
-  <div id="hud" class="hud hidden">
-    <div class="hud-pill" id="hudLevel">Level 1</div>
-    <div class="hud-pill" id="hudCoins">🦴 0</div>
-    <div class="hud-pill" id="hudStreak">🔥 0</div>
-    <button class="hud-icon" id="shopBtn" title="Shop">🛒</button>
-  </div>
+    <div class="game-grid">
+      <a class="game-card gc-fetch" href="fetch.html">
+        <div class="gc-emoji">🥏</div>
+        <div class="gc-body">
+          <div class="gc-name">Woofa Fetch</div>
+          <div class="gc-desc">Flick the throw, land the sweet spot, watch the boys fly for the catch.</div>
+        </div>
+        <div class="gc-go">Play ›</div>
+      </a>
 
-  <!-- Aim hint -->
-  <div id="aimHint" class="aim-hint hidden">Pull back &amp; release to throw</div>
+      <a class="game-card gc-snake" href="snake.html">
+        <div class="gc-emoji">🐍</div>
+        <div class="gc-body">
+          <div class="gc-name">Woofa Snake <span class="gc-tag-new">NEW</span></div>
+          <div class="gc-desc">Woofa's head grows and grows. Trap the other snakes in your tail and eat them to get huge.</div>
+        </div>
+        <div class="gc-go">Play ›</div>
+      </a>
 
-  <!-- Toast for catch feedback -->
-  <div id="toast" class="toast"></div>
-
-  <!-- Start screen -->
-  <div id="startScreen" class="overlay">
-    <div class="panel">
-      <div class="logo">
-        <span class="logo-throw">🥏</span>
-        <h1>WOOFA<span>FETCH</span></h1>
+      <div class="game-card gc-soon">
+        <div class="gc-emoji">🐑</div>
+        <div class="gc-body">
+          <div class="gc-name">Sheep Chase</div>
+          <div class="gc-desc">The boys scramble to grab frisbees for Woofa while the sheep hunt them down. Pac-Man style.</div>
+        </div>
+        <div class="gc-go gc-soon-tag">Soon</div>
       </div>
-      <p class="tagline">Woofa throws. The kids fly for it. (Sometimes they eat dirt.)</p>
-      <button class="btn btn-primary" id="playBtn">PLAY</button>
-      <button class="btn btn-ghost" id="howBtn">How to play</button>
-      <p class="credit">Woofa's got an arm on him 🐾</p>
-    </div>
-  </div>
 
-  <!-- How to play -->
-  <div id="howScreen" class="overlay hidden">
-    <div class="panel">
-      <h2>How to play</h2>
-      <ul class="how-list">
-        <li><b>Pull back</b> anywhere on screen like a slingshot, then <b>release</b> — that's Woofa's throw.</li>
-        <li>Land it in the glowing <b>sweet-spot ring</b> and a kid leaps for the <b>hero catch</b>.</li>
-        <li>Blow the throw and the kid faceplants — <b>breaks their bones</b> and cries. Oops.</li>
-        <li>Perfect catches earn the most <b>🦴 bones</b>. Build a <b>🔥 streak</b> for bonuses.</li>
-        <li>Spend bones in the <b>🛒 shop</b> — better balls, and a <b>Batman cape</b> for the kids.</li>
-        <li>Overshoot on the rooftops and it's gone — you're stuck with the sad tennis ball till you buy a new one.</li>
-      </ul>
-      <button class="btn btn-primary" id="howBack">Got it</button>
-    </div>
-  </div>
-
-  <!-- Shop -->
-  <div id="shopScreen" class="overlay hidden">
-    <div class="panel panel-wide">
-      <div class="shop-head">
-        <h2>Woofa's Shop</h2>
-        <div class="shop-coins">🦴 <span id="shopCoins">0</span></div>
+      <div class="game-card gc-soon">
+        <div class="gc-emoji">✂️</div>
+        <div class="gc-body">
+          <div class="gc-name">Woofa Shearing</div>
+          <div class="gc-desc">Shear Woofa clean as fast as you can. Beat the clock, beat your mates.</div>
+        </div>
+        <div class="gc-go gc-soon-tag">Soon</div>
       </div>
-      <div id="shopList" class="shop-list"></div>
-      <button class="btn btn-primary" id="shopClose">Back to the field</button>
     </div>
-  </div>
 
-  <script src="game.js"></script>
+    <p class="home-foot">More modes on the way 🐾</p>
+  </div>
 </body>
 </html>

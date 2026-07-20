@@ -205,3 +205,108 @@ h2 { margin: 0 0 16px; font-size: 26px; font-weight: 900; }
 .si-tag.equipped { background: rgba(88, 224, 138, 0.18); color: var(--good); }
 .si-tag.equip { background: rgba(255, 255, 255, 0.08); color: var(--ink); cursor: pointer; }
 .si-tag.lockmsg { background: transparent; color: var(--muted); }
+
+/* ================= Home menu (Woofa's Games) ================= */
+.home {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(28px + var(--safe-top)) 20px calc(28px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.home-head { text-align: center; margin-bottom: 22px; }
+.home-logo { font-size: 56px; line-height: 1; }
+.home-title {
+  margin: 6px 0 0;
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 0.92;
+}
+.home-title span { display: block; color: var(--accent); }
+.home-sub { color: var(--muted); font-size: 15px; margin: 12px 0 0; }
+
+.game-grid { display: flex; flex-direction: column; gap: 12px; }
+.game-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--navy-2), #0d1526);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s ease, border-color 0.15s ease;
+}
+a.game-card:active { transform: scale(0.98); }
+a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
+.gc-emoji {
+  font-size: 34px;
+  width: 58px; height: 58px;
+  flex: 0 0 58px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.gc-fetch .gc-emoji { background: rgba(255, 138, 61, 0.14); }
+.gc-snake .gc-emoji { background: rgba(88, 224, 138, 0.14); }
+.gc-body { flex: 1; min-width: 0; }
+.gc-name { font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.gc-desc { color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.35; }
+.gc-go { font-weight: 800; color: var(--accent); font-size: 15px; white-space: nowrap; }
+.gc-snake .gc-go { color: var(--good); }
+.gc-tag-new {
+  font-size: 10px; font-weight: 900; letter-spacing: 0.5px;
+  background: var(--good); color: #05230f;
+  padding: 2px 6px; border-radius: 6px;
+}
+.gc-soon { opacity: 0.6; }
+.gc-soon-tag { color: var(--muted); }
+.home-foot { text-align: center; color: var(--muted); font-size: 13px; margin: 20px 0 0; }
+
+/* back-to-menu link on a game page */
+.back-games {
+  position: fixed;
+  top: calc(10px + var(--safe-top));
+  left: 10px;
+  z-index: 30;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--ink);
+  background: rgba(11, 18, 32, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.back-games:active { transform: scale(0.94); }
+
+/* Snake HUD + overlays reuse .hud / .overlay / .panel from above */
+#snakeHud .hud-pill { min-width: 0; }
+.snake-help { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 20px; text-align: left; }
+.snake-help b { color: var(--good); }
+
+/* Snake boost button */
+.boost-btn {
+  position: fixed;
+  right: calc(18px + var(--safe-bottom));
+  bottom: calc(28px + var(--safe-bottom));
+  z-index: 25;
+  width: 88px; height: 88px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: radial-gradient(circle at 35% 30%, rgba(88,224,138,0.35), rgba(11,18,32,0.8));
+  color: var(--good);
+  font-weight: 900; font-size: 15px; letter-spacing: 1px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  touch-action: none;
+  user-select: none;
+}
+.boost-btn.on { transform: scale(0.92); background: radial-gradient(circle at 35% 30%, rgba(88,224,138,0.6), rgba(11,18,32,0.85)); border-color: var(--good); }
