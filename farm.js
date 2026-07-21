@@ -50,7 +50,7 @@
   });
 
   let F = null;
-  const sheep = [], dogs = [], foxes = [], fluff = [];
+  const sheep = [], dogs = [], foxes = [], fluff = [], grass = [];
   let tractor = null, paddock = {}, feedTrough = {}, waterTrough = {}, shed = {};
   let running = false, tick = 0, breedTimer = 900, foxTimer = 900;
   let placing = null; // a pen being positioned by the finger
@@ -77,7 +77,8 @@
       age: o.role === 'lamb' ? 0 : 999, health: 100, starve: 0, baaT: 0, face: rand(0, 6), breedCD: rand(400, 900),
     };
   }
-  function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1 }; }
+  function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1, orbit: rand(0, 6), job: null }; }
+  function initGrass() { grass.length = 0; for (let i = 0; i < 46; i++) grass.push({ x: rand(paddock.x + 20, paddock.x + paddock.w - 20), y: rand(paddock.y + 20, paddock.y + paddock.h - 24), amt: rand(0.4, 1) }); }
   function makeTractor() { return { x: paddock.x + 50, y: paddock.y + 50, tx: 0, ty: 0, facing: 1, zoom: 0 }; }
   function rebuildDogs() { dogs.length = 0; for (const k of Object.keys(DOGS)) if (F.dogs[k]) dogs.push(makeDog(DOGS[k].kind)); }
   function dogBonus() { let b = 0; for (const k of Object.keys(DOGS)) if (F.dogs[k]) b += DOGS[k].bonus; return b; }
@@ -113,7 +114,7 @@
     for (const sd of (F.sheep || [])) sheep.push(makeSheep(sd));
     while (sheep.length < 3) sheep.push(makeSheep({ role: sheep.length === 2 ? 'ram' : 'ewe' }));
     if (!F.pens) F.pens = [];
-    rebuildDogs();
+    rebuildDogs(); initGrass();
     tractor = F.upgrades && F.upgrades.tractor ? makeTractor() : null;
     applyOffline(); running = true; hideOverlays(); updateHud();
   }
@@ -182,6 +183,8 @@
       for (const fx of foxes) if (dist(s.x, s.y, fx.x, fx.y) < 80) { const a = Math.atan2(s.y - fx.y, s.x - fx.x); s.tx = s.x + Math.cos(a) * 130; s.ty = s.y + Math.sin(a) * 130; s.moveT = 20; fleeing = true; }
       // flee the tractor (it herds)
       if (tractor && dist(s.x, s.y, tractor.x, tractor.y) < 78) { const a = Math.atan2(s.y - tractor.y, s.x - tractor.x); s.tx = s.x + Math.cos(a) * 120; s.ty = s.y + Math.sin(a) * 120; s.moveT = 24; fleeing = true; }
+      // gently give way to a nearby dog — this is how they get rounded up into a mob
+      for (const d of dogs) if (dist(s.x, s.y, d.x, d.y) < 50) { const a = Math.atan2(s.y - d.y, s.x - d.x); s.tx = s.x + Math.cos(a) * 62; s.ty = s.y + Math.sin(a) * 62; s.moveT = Math.max(s.moveT, 12); fleeing = true; }
       if (!fleeing && s.hunger > 55 && F.feed > 0) { s.tx = feedTrough.x + rand(-14, 14); s.ty = feedTrough.y - 12; s.moveT = Math.max(s.moveT, 18); }
       else if (!fleeing && s.thirst > 55 && F.water > 0) { s.tx = waterTrough.x + rand(-14, 14); s.ty = waterTrough.y - 12; }
       else if (!fleeing && s.moveT <= 0) { s.tx = rand(paddock.x + 30, paddock.x + paddock.w - 30); s.ty = rand(paddock.y + 30, paddock.y + paddock.h - 40); s.moveT = rand(40, 120); }
@@ -193,8 +196,11 @@
 
       if (F.feed > 0 && s.hunger > 12 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 44) { s.hunger = clamp(s.hunger - 0.3 * dt, 0, 100); F.feed = clamp(F.feed - 0.02 * dt, 0, 100); }
       if (F.water > 0 && s.thirst > 12 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 44) { s.thirst = clamp(s.thirst - 0.3 * dt, 0, 100); F.water = clamp(F.water - 0.015 * dt, 0, 100); }
+      // graze the grass — free food that regrows
+      for (const gr of grass) if (gr.amt > 0.15 && dist(s.x, s.y, gr.x, gr.y) < 15) { s.hunger = clamp(s.hunger - 0.11 * dt, 0, 100); gr.amt = clamp(gr.amt - 0.02 * dt, 0, 1); break; }
       void ox; void oy;
     }
+    for (const gr of grass) gr.amt = clamp(gr.amt + 0.0006 * dt, 0, 1);   // grass regrows
 
     breedTimer -= dt;
     if (breedTimer <= 0) {
@@ -204,7 +210,13 @@
     }
 
     foxTimer -= dt;
-    if (foxTimer <= 0 && sheep.length > 0 && foxes.length < 2) { foxTimer = rand(1400, 2600) / (1 + (F.farmLevel - 1) * 0.35); const edge = Math.random() < 0.5; foxes.push({ x: edge ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false }); }
+    if (foxTimer <= 0 && sheep.length > 0 && foxes.length < 3) {
+      foxTimer = rand(1400, 2600) / (1 + (F.farmLevel - 1) * 0.35);
+      const spawnFoxAt = (left) => foxes.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false });
+      const left = Math.random() < 0.5; spawnFoxAt(left);
+      // every now and then, a DOUBLE raid from both sides — one dog can't cover both (get two dogs!)
+      if (Math.random() < 0.14 + (F.farmLevel - 1) * 0.03 && foxes.length < 3) { spawnFoxAt(!left); toast('🦊🦊 Double fox raid — both sides at once!'); }
+    }
     for (let i = foxes.length - 1; i >= 0; i--) {
       const fx = foxes[i]; let chased = false;
       for (const d of dogs) if (dist(d.x, d.y, fx.x, fx.y) < 95) chased = true;
@@ -217,12 +229,21 @@
       if (fx.fleeing && (fx.x < paddock.x - 30 || fx.x > paddock.x + paddock.w + 30)) foxes.splice(i, 1);
     }
 
+    // ---- dogs: nearest dog peels off to each fox; the rest herd the flock into a mob ----
+    const busy = new Set();
+    for (const fx of foxes) { let best = null, bd = 1e9; for (const d of dogs) { if (busy.has(d)) continue; const dd = dist(d.x, d.y, fx.x, fx.y); if (dd < bd) { bd = dd; best = d; } } if (best) { busy.add(best); best._fx = fx; } }
+    let cx = 0, cy = 0; if (sheep.length) { for (const s of sheep) { cx += s.x; cy += s.y; } cx /= sheep.length; cy /= sheep.length; }
     for (const d of dogs) {
       d.moveT -= dt; if (d.zoom > 0) d.zoom -= 0.01 * dt;
-      let target = null; if (foxes.length) { let bd = 1e9; for (const fx of foxes) { const dd = dist(d.x, d.y, fx.x, fx.y); if (dd < bd) { bd = dd; target = fx; } } }
-      if (target) { d.tx = target.x; d.ty = target.y; d.zoom = Math.max(d.zoom, 0.6); }
-      else if (d.moveT <= 0) { d.tx = rand(paddock.x + 40, paddock.x + paddock.w - 40); d.ty = rand(paddock.y + 30, paddock.y + paddock.h - 30); d.moveT = rand(60, 160); }
-      const sp = d.zoom > 0 ? 3.5 : 1.3, a = Math.atan2(d.ty - d.y, d.tx - d.x);
+      const chasing = busy.has(d);
+      if (chasing) { d.tx = d._fx.x; d.ty = d._fx.y; d.zoom = Math.max(d.zoom, 0.7); }
+      else if (sheep.length) {
+        // push the most-outlying sheep back toward the flock centre; else circle the mob to keep it tight
+        let stray = null, sd = -1; for (const s of sheep) { const dd = dist(s.x, s.y, cx, cy); if (dd > sd) { sd = dd; stray = s; } }
+        if (stray && sd > 46) { const a = Math.atan2(stray.y - cy, stray.x - cx); d.tx = stray.x + Math.cos(a) * 40; d.ty = stray.y + Math.sin(a) * 40; }
+        else { d.orbit += 0.03 * dt; d.tx = cx + Math.cos(d.orbit) * 74; d.ty = cy + Math.sin(d.orbit) * 74; }
+      } else if (d.moveT <= 0) { d.tx = rand(paddock.x + 40, paddock.x + paddock.w - 40); d.ty = rand(paddock.y + 30, paddock.y + paddock.h - 30); d.moveT = rand(60, 160); }
+      const sp = chasing ? 3.6 : 1.6, a = Math.atan2(d.ty - d.y, d.tx - d.x);
       if (dist(d.x, d.y, d.tx, d.ty) > 5) { d.x += Math.cos(a) * sp * dt; d.y += Math.sin(a) * sp * dt; d.facing = Math.cos(a) >= 0 ? 1 : -1; }
     }
     if (tractor) {
@@ -251,6 +272,7 @@
     ctx.fillStyle = g; ctx.fillRect(paddock.x, paddock.y, paddock.w, paddock.h);
     ctx.fillStyle = 'rgba(255,255,255,0.045)'; for (let i = 0; i < 12; i++) { const yy = paddock.y + (i / 12) * paddock.h; ctx.fillRect(paddock.x, yy, paddock.w, 2 + i * 0.5); }
     drawFence(paddock.x, paddock.y, paddock.w, paddock.h, true);
+    drawGrass();
 
     if (F.power === 'economical') drawWaterWheel();
     drawTrough(feedTrough, '#d9b24a', F.feed); drawTrough(waterTrough, '#4cc9ff', F.water); drawShed(shed);
@@ -295,7 +317,25 @@
     ctx.fillStyle = col; roundRect(-19, -6 + (12 - level / 100 * 12), 38, level / 100 * 12, 3); ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; roundRect(-22, -8, 44, 16, 4); ctx.stroke(); ctx.restore();
   }
-  function drawWaterWheel() { const wx = paddock.x + 24, wy = paddock.y + 30, r = 18, ang = tick / 40; ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(wx, wy, r, 0, 7); ctx.stroke(); ctx.lineWidth = 3; for (let i = 0; i < 8; i++) { const a = ang + i / 8 * Math.PI * 2; ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + Math.cos(a) * r, wy + Math.sin(a) * r); ctx.stroke(); } }
+  function drawGrass() {
+    for (const gr of grass) {
+      if (gr.amt < 0.12) { ctx.fillStyle = 'rgba(90,63,36,0.35)'; ctx.beginPath(); ctx.ellipse(gr.x, gr.y, 5, 2.5, 0, 0, 7); ctx.fill(); continue; }
+      const sc = dscale(gr.y), n = 3 + Math.round(gr.amt * 3);
+      ctx.strokeStyle = gr.amt > 0.5 ? '#6fd06a' : '#8fbf6a'; ctx.lineWidth = 1.6 * sc; ctx.lineCap = 'round';
+      for (let i = 0; i < n; i++) { const bx = gr.x + (i - n / 2) * 2.4 * sc, sw = Math.sin(tick / 30 + gr.x + i) * 1.5; ctx.beginPath(); ctx.moveTo(bx, gr.y); ctx.lineTo(bx + sw, gr.y - (5 + gr.amt * 5) * sc); ctx.stroke(); }
+    }
+  }
+  // big obvious water wheel + trough — "economical" power
+  function drawWaterWheel() {
+    const wx = paddock.x + 40, wy = paddock.y + paddock.h - 46, r = 34, ang = tick / 40;
+    // water channel
+    ctx.fillStyle = '#3ba7e0'; ctx.fillRect(wx - 4, wy + r - 6, 60, 8);
+    ctx.strokeStyle = '#5a3f24'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(wx, wy, r, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(wx, wy, r, 0, 7); ctx.stroke();
+    for (let i = 0; i < 10; i++) { const a = ang + i / 10 * Math.PI * 2; ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(wx + Math.cos(a) * r, wy + Math.sin(a) * r); ctx.stroke(); ctx.fillStyle = '#7fd0ff'; ctx.beginPath(); ctx.arc(wx + Math.cos(a) * r, wy + Math.sin(a) * r, 3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.arc(wx, wy, 6, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('water wheel', wx + 24, wy - r - 4);
+  }
   function drawShed(sh) { const sc = dscale(sh.y); ctx.save(); ctx.translate(sh.x, sh.y); ctx.scale(sc, sc); ctx.fillStyle = '#b04a3a'; ctx.fillRect(0, 14, 52, 34); ctx.fillStyle = '#7a2f28'; ctx.beginPath(); ctx.moveTo(-4, 16); ctx.lineTo(26, -2); ctx.lineTo(56, 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#5a3a2a'; ctx.fillRect(18, 28, 16, 20); ctx.restore(); }
 
   function drawSheep(s) {
@@ -395,7 +435,9 @@
       spawnFox() { foxTimer = -5; }, pushFox() { foxes.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false }); },
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
       buyTractor, buyPen, herdTo, dropPlacing() { placing = null; },
-      dbg() { return { pens: F.pens.length, placing: !!placing, tractor: !!tractor }; },
+      flockSpread() { if (sheep.length < 2) return 0; let cx = 0, cy = 0; for (const s of sheep) { cx += s.x; cy += s.y; } cx /= sheep.length; cy /= sheep.length; let d = 0; for (const s of sheep) d += Math.hypot(s.x - cx, s.y - cy); return Math.round(d / sheep.length); },
+      grassTotal() { let t = 0; for (const gr of grass) t += gr.amt; return Math.round(t); },
+      dbg() { return { pens: F.pens.length, placing: !!placing, tractor: !!tractor, dogs: dogs.length, grass: grass.length }; },
     };
   }
 })();
