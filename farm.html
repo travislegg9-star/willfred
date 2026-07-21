@@ -16,18 +16,29 @@
   <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
   <canvas id="game"></canvas>
 
-  <!-- HUD -->
-  <div id="farmHud" class="hud">
-    <div class="hud-pill" id="fMoney">💰 0</div>
-    <div class="hud-pill" id="fWool">🧺 0</div>
-    <div class="hud-pill" id="fSheep">🐑 0</div>
-    <div class="hud-pill" id="fLevel">Lv 1</div>
-  </div>
-
-  <!-- resource bars for the troughs -->
-  <div id="troughBars" class="trough-bars">
-    <div class="tb"><span>🌾</span><div class="tb-track"><div id="feedBar" class="tb-fill feed"></div></div></div>
-    <div class="tb"><span>💧</span><div class="tb-track"><div id="waterBar" class="tb-fill water"></div></div></div>
+  <!-- HUD in the sky: big money/wool + food/water gauges -->
+  <div id="farmHud" class="hud farm-hud">
+    <div class="hud-row">
+      <div class="hud-pill money" id="fMoney">💰 0</div>
+      <div class="hud-pill" id="fWool">🧺 0</div>
+      <div class="hud-pill" id="fSheep">🐑 0</div>
+      <div class="hud-pill" id="fLevel">Lv 1</div>
+      <div class="hud-spacer"></div>
+      <button class="hud-mini" id="btnSound" title="Sound">🔊</button>
+      <button class="hud-mini" id="btnHelp" title="How to play">?</button>
+    </div>
+    <div class="gauges">
+      <div class="gauge">
+        <span class="g-ic">🌾</span>
+        <div class="g-track"><div id="foodFill" class="g-fill food"></div></div>
+        <span class="g-pct" id="foodPct">60%</span>
+      </div>
+      <div class="gauge">
+        <span class="g-ic">💧</span>
+        <div class="g-track"><div id="waterFill" class="g-fill water"></div></div>
+        <span class="g-pct" id="waterPct">60%</span>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast"></div>
@@ -40,23 +51,32 @@
     <button class="fbtn" id="btnShop"><span class="fb-emoji">🛒</span><span class="fb-lbl">Shop</span></button>
   </div>
 
-  <!-- start / intro -->
-  <div id="startScreen" class="overlay">
-    <div class="panel">
-      <div class="logo">
-        <span class="logo-throw" style="animation:none">🐑</span>
-        <h1>EWE BEAUTY<span>FARMING Co</span></h1>
+  <!-- start / animated intro -->
+  <div id="startScreen" class="overlay intro-overlay">
+    <div class="intro-sky">
+      <span class="intro-cloud c1">☁️</span>
+      <span class="intro-cloud c2">☁️</span>
+      <span class="intro-dog">🐕</span>
+    </div>
+    <div class="panel intro-panel">
+      <div class="intro-flock">
+        <span class="ifs s1">🐑</span><span class="ifs s2">🐑</span><span class="ifs s3">🐏</span><span class="ifs s4">🐑</span>
       </div>
-      <p class="snake-help">
-        <b>🎯 Goal:</b> build the biggest, richest sheep farm you can — more sheep, better breeds, bigger land.<br><br>
-        <b>Feed 🌾 &amp; water 💧</b> your sheep so their wool grows (neglect them and they die!).<br>
-        When one's fluffy <b>✂️</b>, <b>tap it to shear</b>, then <b>Sell wool</b> for coin.<br>
-        <b>Tap the field</b> to send Woofa &amp; the tractor to round the flock up.<br>
-        Keep dogs on the <b>🦊 foxes</b> — grab a 2nd dog for double raids.<br>
-        Spend coin in the <b>🛒 Shop</b>: sheep, breeds (up to the black sheep!), pens, a tractor, power &amp; dogs.<br>
-        Wool keeps growing even while you're away. Build it up! 🚜
-      </p>
-      <button class="btn btn-primary" id="farmPlay">START FARMING</button>
+      <h1 class="intro-title">EWE BEAUTY<span>FARMING Co</span></h1>
+      <p class="intro-tag">Raise sheep · grow wool · build the farm 🚜</p>
+      <button class="btn btn-primary intro-play" id="farmPlay">START FARMING</button>
+    </div>
+  </div>
+
+  <!-- tutorial coach -->
+  <div id="tutOverlay" class="overlay tut-overlay hidden">
+    <div class="tut-card">
+      <div class="tut-step" id="tutStep">1 / 6</div>
+      <p class="tut-text" id="tutText"></p>
+      <div class="tut-btns">
+        <button class="btn-ghost tut-skip" id="tutSkip">Skip</button>
+        <button class="btn btn-primary tut-next" id="tutNext">Next ›</button>
+      </div>
     </div>
   </div>
 

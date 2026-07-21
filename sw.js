@@ -1,5 +1,5 @@
 /* Woofa's Games — offline service worker. Cache-first for the app shell. */
-const CACHE = 'woofa-games-v8';
+const CACHE = 'woofa-games-v9';
 const ASSETS = [
   './',
   './index.html',
