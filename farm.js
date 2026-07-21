@@ -82,8 +82,9 @@
     dogs: { woofa: true }, upgrades: { tractor: false },
     pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: false }],
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
-    tutorialDone: false, muted: false, lastTime: nowMs(),
+    dayT: 0, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
   });
+  const WIN_MONEY = 10000;   // amass this in the Sheep Empire era to win the Golden Fleece
 
   let F = null;
   const sheep = [], dogs = [], preds = [], fluff = [], grass = [], pops = [], workers = [];
@@ -119,6 +120,21 @@
   const techDogRange = () => T('guard') ? 1.3 : 1;
   const stonePenCost = () => T('masonry') ? 12 : STONE_PEN_COST;
 
+  // ---------- day / night ----------
+  const DAY_LEN = 5400;   // ticks for a full day+night (~90s at 60fps)
+  function nightAmt() {
+    const phase = ((F.dayT || 0) % DAY_LEN) / DAY_LEN;
+    if (phase < 0.5) return 0;                       // day
+    if (phase < 0.62) return (phase - 0.5) / 0.12;   // dusk
+    if (phase < 0.9) return 1;                        // night
+    return 1 - (phase - 0.9) / 0.1;                   // dawn
+  }
+  const isNight = () => nightAmt() > 0.5;
+  let wasNight = false;
+  // worker level speed / xp
+  function workerSpeedMul(w) { return 1 + ((w.level || 1) - 1) * 0.12; }
+  function gainXp(w) { if ((w.level || 1) >= 5) return; w.xp = (w.xp || 0) + 1; if (w.xp >= (w.level || 1) * 8) { w.xp = 0; w.level = (w.level || 1) + 1; pop(w.x, w.y - 16, '⭐Lv' + w.level, '#ffd23d'); sfx.up(); syncWorkerJobs(); } }
+
   // ---------- sound ----------
   let actx = null;
   function beep(freq, dur, type, vol) { if (!F || F.muted) return; try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = freq; g.gain.value = (vol || 0.05); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.start(t); g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12)); o.stop(t + (dur || 0.12) + 0.02); } catch (e) {} }
@@ -146,8 +162,8 @@
     };
   }
   function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1, orbit: rand(0, 6), _fx: null }; }
-  function makeWorker(job) { return { job, x: house.x + rand(0, 40), y: house.y + rand(40, 60), tx: 0, ty: 0, moveT: 0, cd: 0, facing: 1, step: 0 }; }
-  function rebuildWorkers() { workers.length = 0; for (const w of (F.workers || [])) workers.push(makeWorker(w.job)); }
+  function makeWorker(job, level, xp) { return { job, level: level || 1, xp: xp || 0, x: house.x + rand(0, 40), y: house.y + rand(40, 60), tx: 0, ty: 0, moveT: 0, cd: 0, facing: 1, step: 0 }; }
+  function rebuildWorkers() { workers.length = 0; for (const w of (F.workers || [])) workers.push(makeWorker(w.job, w.level, w.xp)); }
   function bunkCount() { return F.buildings.filter(b => b.bkind === 'bunk').length; }
   function workerCap() { return 3 + (F.farmLevel - 1) + (F.house.level - 1) + bunkCount() * 2; }
   function initGrass() { grass.length = 0; for (let i = 0; i < 40; i++) grass.push({ x: rand(paddock.x + 20, paddock.x + paddock.w - 20), y: rand(paddock.y + 20, paddock.y + paddock.h - 24), amt: rand(0.35, 0.9) }); }
@@ -195,6 +211,7 @@
     if (typeof F.energy !== 'number') F.energy = F.power === 'electric' ? 3 : F.power === 'economical' ? 1 : 0;
     if (typeof F.wood !== 'number') F.wood = 25; if (typeof F.stone !== 'number') F.stone = 0;
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
+    if (typeof F.dayT !== 'number') F.dayT = 0; if (F.won == null) F.won = false;
     if (!F.troughs) { F.troughs = defaultTroughs(); layout(); }
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
@@ -252,7 +269,7 @@
 
     herdGoal = null; herdTo(p.x, p.y);
   }
-  function syncWorkerJobs() { F.workers = workers.map(w => ({ job: w.job })); }
+  function syncWorkerJobs() { F.workers = workers.map(w => ({ job: w.job, level: w.level || 1, xp: w.xp || 0 })); }
   function onMove(e) {
     const p = pt(e);
     if (placing) { placing.x = clamp(p.x - placing.w / 2, paddock.x + 4, paddock.x + paddock.w - placing.w - 4); placing.y = clamp(p.y - placing.h / 2, paddock.y + 4, paddock.y + paddock.h - placing.h - 4); return; }
@@ -291,6 +308,11 @@
   function update(dt) {
     if (!running || !F) return;
     tick += dt;
+    F.dayT = (F.dayT || 0) + dt;
+    const night = nightAmt(), nowNight = night > 0.5;
+    if (nowNight && !wasNight) { flashAlert('🌙 Night falls — watch for wolves!', '#7a8fff', true); toast('🌙 Night falls...'); }
+    else if (!nowNight && wasNight) { toast('☀️ A new day dawns!'); }
+    wasNight = nowNight;
 
     const e = F.energy;
     if (e === 1) { F.water = clamp(F.water + 0.05 * dt, 0, 62); }
@@ -366,8 +388,8 @@
 
     predTimer -= dt;
     if (predTimer <= 0 && sheep.length > 0 && preds.length < 4 && !F._nofox) {
-      predTimer = rand(2600, 4400) / (1 + (F.farmLevel - 1) * 0.3);
-      const wolfChance = F.farmLevel >= 2 ? 0.22 + (F.farmLevel - 2) * 0.06 : 0;
+      predTimer = rand(2600, 4400) / (1 + (F.farmLevel - 1) * 0.3) / (1 + night * 0.9);   // raids come faster at night
+      const wolfChance = (F.farmLevel >= 2 ? 0.22 + (F.farmLevel - 2) * 0.06 : 0) + night * 0.35;   // wolves prowl the night
       const spawn = (left, wolf) => preds.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false, dead: false, facing: 1, wolf: !!wolf });
       const left = Math.random() < 0.5;
       if (Math.random() < wolfChance) { spawn(left, true); flashAlert('🐺 WOLF!', '#c94a3a', true); toast('🐺 A wolf is on the prowl!'); sfx.wolf(); if (Math.random() < 0.3 && preds.length < 4) spawn(!left, true); }
@@ -413,30 +435,33 @@
       else if (F.water < 18 && sheep.some(s => s.thirst > 55)) flashAlert('💧 Your sheep need water!', '#4cc9ff');
       if (F.wool > 30 && !F.buildings.some(b => b.bkind === 'market')) flashAlert('🧺 Sell wool — or build a Market!', '#58e08a');
     }
+    if (!F.won && F.farmLevel >= ERAS.length && F.money >= WIN_MONEY) { F.won = true; onVictory(); }
+
     if ((tick | 0) % 30 === 0) { updateHud(); persist(); }
   }
 
   // ---------- workers ----------
   function idleNear(w, x, y) { if (w.moveT <= 0) { w.tx = x + rand(-30, 30); w.ty = y + rand(-14, 24); w.moveT = rand(50, 130); } }
   function updateWorkers(dt) {
-    const spd = 1.5 * techWorkerSpeed(), cdMul = 1 / techWorkerSpeed();
+    const base = 1.5 * techWorkerSpeed(), baseCd = 1 / techWorkerSpeed();
     for (const w of workers) {
       w.cd -= dt; w.moveT -= dt;
+      const lb = workerSpeedMul(w), spd = base * lb, cdMul = baseCd / lb;   // levelled-up hands are faster
       if (w.job === 'shear') {
         let tgt = null, bd = 1e9; for (const s of sheep) if (s.role !== 'lamb' && s.wool >= 100) { const d = dist(w.x, w.y, s.x, s.y); if (d < bd) { bd = d; tgt = s; } }
-        if (tgt) { w.tx = tgt.x; w.ty = tgt.y + 4; if (bd < 15 && w.cd <= 0) { const val = shearValue(tgt); F.wool += val; tgt.wool = 0; tgt.baaT = 40; tgt.heartT = 24; spawnFluff(tgt.x, tgt.y); pop(tgt.x, tgt.y - 12, '+' + val + '🧺', '#fff5c8'); sfx.shear(); w.cd = 45 * cdMul; updateHud(); } }
+        if (tgt) { w.tx = tgt.x; w.ty = tgt.y + 4; if (bd < 15 && w.cd <= 0) { const val = shearValue(tgt); F.wool += val; tgt.wool = 0; tgt.baaT = 40; tgt.heartT = 24; spawnFluff(tgt.x, tgt.y); pop(tgt.x, tgt.y - 12, '+' + val + '🧺', '#fff5c8'); sfx.shear(); w.cd = 45 * cdMul; gainXp(w); updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       } else if (w.job === 'haul') {
         const feedLow = F.feed <= F.water; const t = feedLow ? feedTrough : waterTrough; const lvl = feedLow ? F.feed : F.water;
-        if (lvl < 82) { w.tx = t.x; w.ty = t.y - 6; if (dist(w.x, w.y, t.x, t.y) < 20 && w.cd <= 0) { const cost = feedLow ? 2 : 1; if (F.money >= cost) { F.money -= cost; if (feedLow) F.feed = clamp(F.feed + 7, 0, 100); else F.water = clamp(F.water + 8, 0, 100); w.cd = 34 * cdMul; pop(t.x, t.y - 14, feedLow ? '🌾' : '💧', '#fff'); updateHud(); } else { w.cd = 60; } } }
+        if (lvl < 82) { w.tx = t.x; w.ty = t.y - 6; if (dist(w.x, w.y, t.x, t.y) < 20 && w.cd <= 0) { const cost = feedLow ? 2 : 1; if (F.money >= cost) { F.money -= cost; if (feedLow) F.feed = clamp(F.feed + 7, 0, 100); else F.water = clamp(F.water + 8, 0, 100); w.cd = 34 * cdMul; pop(t.x, t.y - 14, feedLow ? '🌾' : '💧', '#fff'); gainXp(w); updateHud(); } else { w.cd = 60; } } }
         else idleNear(w, feedTrough.x, feedTrough.y - 20);
       } else if (w.job === 'wood') {
         let tgt = null, bd = 1e9; for (const pl of F.plants) if (pl.type === 'tree' && (pl.wood == null ? 100 : pl.wood) > 14) { const d = dist(w.x, w.y, pl.x, pl.y); if (d < bd) { bd = d; tgt = pl; } }
-        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.wood = clamp(tgt.wood - 9, 0, 100); F.wood += 3; w.cd = 30 * cdMul; pop(tgt.x, tgt.y - 22, '🪵', '#caa06a'); sfx.chop(); updateHud(); } }
+        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.wood = clamp(tgt.wood - 9, 0, 100); F.wood += 3; w.cd = 30 * cdMul; pop(tgt.x, tgt.y - 22, '🪵', '#caa06a'); sfx.chop(); gainXp(w); updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       } else if (w.job === 'mine') {
         let tgt = null, bd = 1e9; for (const pl of F.plants) if (pl.type === 'rock' && (pl.stone == null ? 100 : pl.stone) > 12) { const d = dist(w.x, w.y, pl.x, pl.y); if (d < bd) { bd = d; tgt = pl; } }
-        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.stone = clamp(tgt.stone - 8, 0, 100); F.stone += 2; w.cd = 34 * cdMul; pop(tgt.x, tgt.y - 20, '🪨', '#b8bcc2'); sfx.mine(); updateHud(); } }
+        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.stone = clamp(tgt.stone - 8, 0, 100); F.stone += 2; w.cd = 34 * cdMul; pop(tgt.x, tgt.y - 20, '🪨', '#b8bcc2'); sfx.mine(); gainXp(w); updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       }
       const a = Math.atan2(w.ty - w.y, w.tx - w.x);
@@ -492,8 +517,24 @@
 
     for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.font = '900 ' + p.sz + 'px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = p.col; ctx.fillText(p.txt, 0, 0); ctx.restore(); } ctx.globalAlpha = 1;
+    drawNight();
     drawMinimap();
     drawAlerts();
+  }
+
+  function drawNight() {
+    const n = nightAmt(); if (n <= 0.01) return;
+    // warm dusk/dawn edge, cool deep-night core
+    ctx.save();
+    ctx.globalAlpha = n * 0.5; ctx.fillStyle = '#0a1330'; ctx.fillRect(0, 0, W, H);
+    if (n > 0.35) { // moon + stars in the sky band
+      ctx.globalAlpha = clamp((n - 0.35) / 0.4, 0, 1);
+      ctx.fillStyle = '#f4f0d0'; ctx.beginPath(); ctx.arc(W * 0.8, paddock.y * 0.4, 12, 0, 7); ctx.fill();
+      ctx.fillStyle = '#0a1330'; ctx.beginPath(); ctx.arc(W * 0.8 + 5, paddock.y * 0.4 - 3, 11, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      for (let i = 0; i < 14; i++) { const sx = (i * 97 % W), sy = ((i * 53) % (paddock.y - 10)) + 4, tw = 0.5 + 0.5 * Math.abs(Math.sin(tick / 20 + i)); ctx.globalAlpha = clamp((n - 0.35) / 0.4, 0, 1) * tw; ctx.fillRect(sx, sy, 1.6, 1.6); }
+    }
+    ctx.restore();
   }
 
   function drawAlerts() {
@@ -603,6 +644,7 @@
     else if (w.job === 'mine') { ctx.strokeStyle = '#6a4a34'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6 * f, 2); ctx.lineTo(9 * f, -6); ctx.stroke(); ctx.strokeStyle = '#c8ccd0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(6 * f, -7); ctx.lineTo(12 * f, -5); ctx.stroke(); }
     else if (w.job === 'haul') { ctx.fillStyle = '#8a8f96'; ctx.fillRect(5 * f, 0, 5, 5); ctx.strokeStyle = '#6a6f76'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(7.5 * f, 0, 2.5, Math.PI, 0); ctx.stroke(); }
     else { ctx.strokeStyle = '#c8ccd0'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6 * f, 0); ctx.lineTo(10 * f, -3); ctx.moveTo(6 * f, 2); ctx.lineTo(10 * f, -1); ctx.stroke(); }
+    if ((w.level || 1) > 1) { ctx.fillStyle = '#ffd23d'; ctx.font = '900 6px system-ui'; ctx.textAlign = 'center'; ctx.fillText('★'.repeat(Math.min(w.level - 1, 4)), 0, -16); }
     ctx.restore();
   }
   function drawSheep(s) {
@@ -670,6 +712,12 @@
     const fb = el('foodFill'); if (fb) fb.classList.toggle('low', F.feed < 20);
     const wb = el('waterFill'); if (wb) wb.classList.toggle('low', F.water < 20);
     el('sellVal').textContent = '$' + Math.floor(F.wool * woolPrice());
+    const gc = el('goalChip'), gf = el('goalFill'); if (gc) { const g = goalInfo(); gc.querySelector('.goal-text').textContent = g.text; if (gf) gf.style.width = Math.round(g.pct * 100) + '%'; gc.classList.toggle('done', g.done); }
+  }
+  function goalInfo() {
+    if (F.won) return { text: '🏆 Golden Fleece won — sandbox on!', pct: 1, done: true };
+    if (F.farmLevel < ERAS.length) { const c = expandCost(); return { text: '🎯 Reach the ' + ERAS[F.farmLevel].name + ' era', pct: clamp(F.money / c, 0, 1), done: false }; }
+    return { text: '🏆 Amass $' + WIN_MONEY + ' for the Golden Fleece', pct: clamp(F.money / WIN_MONEY, 0, 1), done: false };
   }
   const toastEl = el('toast');
   function toast(m) { if (!toastEl) return; toastEl.textContent = m; toastEl.style.color = '#fff'; toastEl.classList.remove('show'); void toastEl.offsetWidth; toastEl.classList.add('show'); }
@@ -700,6 +748,15 @@
   function endTut() { const o = el('tutOverlay'); if (o) o.classList.add('hidden'); if (F) { F.tutorialDone = true; persist(); } }
   { const n = el('tutNext'); if (n) n.onclick = nextTut; const s = el('tutSkip'); if (s) s.onclick = endTut; }
 
+  // ---------- victory ----------
+  function onVictory() {
+    toast('🏆 GOLDEN FLEECE!'); flashAlert('🏆 YOU BUILT A SHEEP EMPIRE!', '#ffd23d', true); sfx.up(); setTimeout(() => sfx.coin(), 200);
+    for (let k = 0; k < 4; k++) setTimeout(() => confetti(rand(W * 0.2, W * 0.8), H * 0.3, ['🏆', '🎉', '⭐', '🐑', '👑']), k * 250);
+    const o = el('winScreen'); if (o) o.classList.remove('hidden');
+    persist();
+  }
+  { const b = el('winClose'); if (b) b.onclick = () => { const o = el('winScreen'); if (o) o.classList.add('hidden'); }; }
+
   // ---------- research overlay ----------
   const researchScreen = el('researchScreen');
   function openResearch() { renderResearch(); researchScreen.classList.remove('hidden'); }
@@ -723,7 +780,7 @@
 
   // ---------- shop ----------
   const startScreen = el('startScreen'), shopScreen = el('shopScreen');
-  function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); if (researchScreen) researchScreen.classList.add('hidden'); }
+  function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); if (researchScreen) researchScreen.classList.add('hidden'); const wsn = el('winScreen'); if (wsn) wsn.classList.add('hidden'); }
   function openShop() { if (!F) return; renderShop(); shopScreen.classList.remove('hidden'); }
   function closeShop() { shopScreen.classList.add('hidden'); }
   function sheepCost(b) { return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
@@ -784,7 +841,7 @@
   if (location.hash.indexOf('debug') !== -1) {
     window.__farm = {
       start: startGame, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length } : { running }; },
+      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, night: +nightAmt().toFixed(2), isNight: isNight(), won: !!F.won, workerLvls: workers.map(w => w.level || 1) } : { running }; },
       lastErr() { return lastErr ? String(lastErr && lastErr.stack || lastErr) : null; },
       give(m) { F.money += m; updateHud(); }, giveWood(w) { F.wood += w; updateHud(); }, giveStone(s) { F.stone += s; updateHud(); }, feed: refillFeed, water: refillWater, sell: sellWool,
       forceWool() { for (const s of sheep) if (s.role !== 'lamb') s.wool = 100; }, shearAll() { for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb') { if (!insideAnyPen(s.x, s.y)) { s.x = F.pens[0] ? F.pens[0].x + F.pens[0].w / 2 : s.x; s.y = F.pens[0] ? F.pens[0].y + F.pens[0].h / 2 : s.y; } shearSheep(s); } },
@@ -800,6 +857,7 @@
       treeWood() { return F.plants.filter(p => p.type === 'tree').map(p => Math.round(p.wood)); }, rockStone() { return F.plants.filter(p => p.type === 'rock').map(p => Math.round(p.stone)); },
       putSheepIn(i) { const p = F.pens[i]; if (!p) return; for (const s of sheep) { s.x = p.x + p.w / 2 + rand(-p.w * 0.3, p.w * 0.3); s.y = p.y + p.h / 2 + rand(-p.h * 0.3, p.h * 0.3); } },
       tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
+      setDay(phase) { F.dayT = phase * DAY_LEN; }, night() { return nightAmt(); }, goal() { return goalInfo(); }, levelUpAll() { for (const w of workers) { w.level = 5; } syncWorkerJobs(); }, workXp() { for (const w of workers) gainXp(w); },
       flockSpread() { if (sheep.length < 2) return 0; const c = flockCentroid(); let d = 0; for (const s of sheep) d += Math.hypot(s.x - c.x, s.y - c.y); return Math.round(d / sheep.length); },
       dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length, preds: preds.length }; },
     };
