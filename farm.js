@@ -149,14 +149,42 @@
   function gainXp(w) { if ((w.level || 1) >= 5) return; w.xp = (w.xp || 0) + 1; if (w.xp >= (w.level || 1) * 8) { w.xp = 0; w.level = (w.level || 1) + 1; pop(w.x, w.y - 16, '⭐Lv' + w.level, '#ffd23d'); sfx.up(); syncWorkerJobs(); } }
 
   // ---------- sound ----------
-  let actx = null;
-  function beep(freq, dur, type, vol) { if (!F || F.muted) return; try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = freq; g.gain.value = (vol || 0.05); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.start(t); g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12)); o.stop(t + (dur || 0.12) + 0.02); } catch (e) {} }
+  let actx = null, master = null, musicGain = null, musicOn = false, musicStep = 0, nextNoteTime = 0;
+  const BPM = 66, SPB = 60 / BPM, EIGHTH = SPB / 2;
+  const M_C = 130.81, nf = (semi) => M_C * Math.pow(2, semi / 12);
+  const PROG = [[0, 4, 7], [7, 11, 14], [9, 12, 16], [5, 9, 12]];   // Cmaj · Gmaj · Amin · Fmaj
+  const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+  function ensureAudio() {
+    try {
+      if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.85; master.connect(actx.destination); musicGain = actx.createGain(); musicGain.gain.value = 0.55; musicGain.connect(master); }
+      if (actx.state === 'suspended' && actx.resume) actx.resume();
+      nextNoteTime = actx.currentTime + 0.12; musicOn = true;
+    } catch (e) { actx = null; musicOn = false; }
+  }
+  function tone(type, f, t, dur, v, atk) { const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + (atk || 0.01)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(musicGain); o.start(t); o.stop(t + dur + 0.03); }
+  function musicSched() {
+    try {
+      if (!actx || F.muted) { if (actx) nextNoteTime = actx.currentTime + 0.1; return; }
+      while (nextNoteTime < actx.currentTime + 0.3) {
+        const step = musicStep, t = nextNoteTime, night = nightAmt(), mv = 1 - night * 0.45;
+        const bar = Math.floor(step / 8) % PROG.length, chord = PROG[bar], inBar = step % 8;
+        if (inBar === 0) for (const s of chord) tone('sine', nf(s - 12), t, SPB * 3.6, 0.022 * mv, 0.5);   // warm pad
+        const an = chord[inBar % chord.length] + (inBar >= 4 ? 12 : 0); tone('triangle', nf(an), t, 0.5, 0.03 * mv, 0.008);   // arpeggio
+        if ((inBar === 2 || inBar === 6) && Math.random() < 0.45) tone('sine', nf(PENTA[(Math.random() * PENTA.length) | 0] + 12), t + 0.02, 0.55, 0.026 * mv, 0.03);   // gentle lead
+        musicStep++; nextNoteTime += EIGHTH;
+      }
+    } catch (e) { musicOn = false; }
+  }
+  function beep(freq, dur, type, vol) { if (!F || F.muted || !actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = freq; g.gain.value = (vol || 0.05); o.connect(g); g.connect(master || actx.destination); const t = actx.currentTime; o.start(t); g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12)); o.stop(t + (dur || 0.12) + 0.02); } catch (e) {} }
   const sfx = {
     coin() { beep(880, 0.09, 'triangle', 0.05); setTimeout(() => beep(1320, 0.08, 'triangle', 0.045), 60); },
     shear() { beep(520, 0.06, 'square', 0.04); }, chop() { beep(140, 0.08, 'square', 0.05); }, mine() { beep(200, 0.07, 'square', 0.05); }, pop() { beep(660, 0.07, 'sine', 0.05); },
     fox() { beep(180, 0.18, 'sawtooth', 0.05); }, wolf() { beep(110, 0.3, 'sawtooth', 0.06); }, boom() { beep(120, 0.25, 'sawtooth', 0.07); setTimeout(() => beep(90, 0.2, 'square', 0.05), 40); },
     up() { beep(523, 0.1, 'triangle', 0.05); setTimeout(() => beep(784, 0.14, 'triangle', 0.05), 90); }, woof() { beep(240, 0.12, 'square', 0.05); setTimeout(() => beep(200, 0.1, 'square', 0.04), 90); },
     build() { beep(392, 0.09, 'square', 0.05); setTimeout(() => beep(523, 0.1, 'triangle', 0.05), 90); }, tech() { beep(660, 0.08, 'triangle', 0.05); setTimeout(() => beep(990, 0.12, 'triangle', 0.05), 80); }, err() { beep(160, 0.12, 'square', 0.04); },
+    baa() { beep(300, 0.16, 'sawtooth', 0.03); setTimeout(() => beep(270, 0.14, 'sawtooth', 0.025), 120); },
+    bird() { beep(1900, 0.05, 'sine', 0.025); setTimeout(() => beep(2300, 0.05, 'sine', 0.022), 80); setTimeout(() => beep(2050, 0.06, 'sine', 0.018), 165); },
+    cricket() { beep(3200, 0.025, 'square', 0.012); setTimeout(() => beep(3200, 0.025, 'square', 0.01), 55); },
   };
 
   // ---------- particles ----------
@@ -231,7 +259,7 @@
   function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age, sick: s.sick })); try { localStorage.setItem(SAVE_KEY, JSON.stringify(F)); } catch (e) {} }
 
   function startGame() {
-    F = load(); layout();
+    F = load(); layout(); ensureAudio();
     if (typeof F.energy !== 'number') F.energy = F.power === 'electric' ? 3 : F.power === 'economical' ? 1 : 0;
     if (typeof F.wood !== 'number') F.wood = 25; if (typeof F.stone !== 'number') F.stone = 0;
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
@@ -507,6 +535,10 @@
       else if (F.water < 18 && sheep.some(s => s.thirst > 55)) flashAlert('💧 Your sheep need water!', '#4cc9ff');
       if (F.wool > 30 && !F.buildings.some(b => b.bkind === 'market')) flashAlert('🧺 Sell wool — or build a Market!', '#58e08a');
     }
+    // ambient life
+    if (sheep.length && Math.random() < 0.0006 * dt) { const s = sheep[(Math.random() * sheep.length) | 0]; if (s.role !== 'lamb') { s.baaT = 40; sfx.baa(); } }
+    if (Math.random() < 0.0007 * dt) { if (isNight()) sfx.cricket(); else sfx.bird(); }
+
     if (!F.won && F.farmLevel >= ERAS.length && F.money >= WIN_MONEY) { F.won = true; onVictory(); }
 
     if ((tick | 0) % 30 === 0) { updateHud(); persist(); }
@@ -862,7 +894,7 @@
   el('btnFeed').onclick = refillFeed; el('btnWater').onclick = refillWater; el('btnSell').onclick = sellWool; el('btnShop').onclick = openShop; el('farmPlay').onclick = startGame; el('shopClose').onclick = closeShop;
   { const b = el('btnWoofa'); if (b) b.onclick = () => { if (running) woofaGather(); }; }
   function syncMute() { const b = el('btnSound'); if (b) b.textContent = F && F.muted ? '🔇' : '🔊'; }
-  { const b = el('btnSound'); if (b) b.onclick = () => { F.muted = !F.muted; syncMute(); if (!F.muted) sfx.pop(); persist(); }; }
+  { const b = el('btnSound'); if (b) b.onclick = () => { F.muted = !F.muted; syncMute(); if (!F.muted) { ensureAudio(); sfx.pop(); } persist(); }; }
   { const b = el('btnHelp'); if (b) b.onclick = () => startTutorial(); }
   { const b = el('btnResearch'); if (b) b.onclick = () => { if (running) openResearch(); }; }
 
@@ -970,7 +1002,7 @@
 
   // ---------- loop ----------
   let lastT = performance.now(), lastErr = null;
-  function frame(nt) { let dt = (nt - lastT) / 16.6667; lastT = nt; dt = clamp(dt, 0, 2.5); try { update(dt); render(); } catch (e) { lastErr = e; } requestAnimationFrame(frame); }
+  function frame(nt) { let dt = (nt - lastT) / 16.6667; lastT = nt; dt = clamp(dt, 0, 2.5); try { update(dt); render(); if (musicOn) musicSched(); } catch (e) { lastErr = e; } requestAnimationFrame(frame); }
   window.addEventListener('beforeunload', persist);
   resize(); requestAnimationFrame(frame);
 
@@ -989,6 +1021,7 @@
       research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
       buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
       buySheep, scrapBuild(i) { if (F.buildings[i]) scrapBuilding(F.buildings[i]); }, killAllSheep() { sheep.length = 0; updateHud(); },
+      audio() { ensureAudio(); return { musicOn, hasCtx: !!actx }; }, tickMusic() { musicSched(); }, advClock(s) { if (actx && actx._adv) actx._adv(s); },
       penInfo() { return F.pens.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), w: Math.round(p.w), h: Math.round(p.h), gate: p.gateSide, open: p.gateOpen, stone: !!p.stone })); },
       resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, stonePen(i) { if (F.pens[i]) upgradePenStone(F.pens[i]); }, closeGate(i) { if (F.pens[i]) F.pens[i].gateOpen = false; }, setEnergy(n) { F.energy = n; },
       sheepInPen(i) { const p = F.pens[i]; if (!p) return 0; return sheep.filter(s => penInsideStrict(p, s.x, s.y)).length; },
