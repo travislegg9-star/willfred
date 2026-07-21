@@ -401,10 +401,16 @@
 
   function herdTo(x, y) { x = clamp(x, paddock.x + 16, paddock.x + paddock.w - 16); y = clamp(y, paddock.y + 16, paddock.y + paddock.h - 16); for (const d of dogs) { d.tx = x + rand(-18, 18); d.ty = y + rand(-14, 14); d.moveT = 90; d.zoom = 1; } if (tractor) { tractor.tx = x; tractor.ty = y; tractor.zoom = 1; } pop(x, y, '🐾', '#fff'); }
   function woofaGather() {
-    const pen = nearestOpenPen();
-    if (pen) { herdGoal = { pen, t: 480 }; toast('🐾 Woofa\'s bringing them in!'); flashAlert('🐾 Herding into the pen!', '#58e08a'); const g = gateCenter(pen); pop(g.x, g.y, '🐾', '#58e08a', true); }
-    else { const c = flockCentroid(); herdGoal = null; herdTo(c.x, c.y); toast(F.pens.length ? '🐾 Gathered! Open a gate to pen them.' : '🐾 Woofa gathers the flock!'); }
-    sfx.woof();
+    if (!F.pens || !F.pens.length) { toast('🚧 Build a pen first, then press 🐾 Woofa!'); flashAlert('🚧 Build a pen first!', '#ffb03a'); sfx.err(); return; }
+    // nearest pen to the flock — Woofa OPENS its gate and drives them straight in
+    const c = flockCentroid(); let pen = null, bd = 1e9;
+    for (const p of F.pens) { const g = gateCenter(p); const d = dist(c.x, c.y, g.x, g.y); if (d < bd) { bd = d; pen = p; } }
+    pen.gateOpen = true;
+    herdGoal = { pen, t: 1600 };   // stays herding for a good long while (~27s), clears once they're all in
+    for (const s of sheep) s._penned = penInsideStrict(pen, s.x, s.y);
+    for (const d of dogs) { d.zoom = 1; }
+    toast('🐾 Woofa\'s rounding them up!'); flashAlert('🐾 Herding into the pen!', '#58e08a');
+    const g = gateCenter(pen); pop(g.x, g.y, '🐾', '#58e08a', true); sfx.woof();
   }
   function shearSheep(s) { const val = shearValue(s); F.wool += val; s.wool = 0; s.baaT = 40; s.heartT = 30; spawnFluff(s.x, s.y); pop(s.x, s.y - 14, '+' + val + ' 🧺', '#fff5c8'); sfx.shear(); toast('✂️ +' + val + ' wool' + (s.breed !== 'normal' ? ' (' + BREEDS[s.breed].name + '!)' : '')); persist(); updateHud(); }
   function scrapPen(p) { const i = F.pens.indexOf(p); if (i < 0) return; F.pens.splice(i, 1); if (herdGoal && herdGoal.pen === p) herdGoal = null; selectedPen = null; F.money += 40; if (p.stone) F.stone += 12; toast('🗑️ Pen scrapped (+$40)'); pop(p.x + p.w / 2, p.y, '🗑️', '#ff8a3d'); sfx.pop(); persist(); updateHud(); }
@@ -453,7 +459,11 @@
       else if (b.bkind === 'haybarn') { F.feed = clamp(F.feed + 0.04 * dt, 0, 88); }
     }
 
-    if (herdGoal) { herdGoal.t -= dt; if (herdGoal.t <= 0 || F.pens.indexOf(herdGoal.pen) < 0) herdGoal = null; }
+    if (herdGoal) {
+      herdGoal.t -= dt;
+      if (herdGoal.t <= 0 || F.pens.indexOf(herdGoal.pen) < 0) herdGoal = null;
+      else if (!herdGoal.announced) { const grown = sheep.filter(s => s.role !== 'lamb'); if (grown.length && grown.every(s => penInsideStrict(herdGoal.pen, s.x, s.y))) { herdGoal.announced = true; toast('🐑 All penned! Tap a fluffy ✂️ sheep to shear.'); flashAlert('🐑 All in — tap one to shear!', '#58e08a'); } }
+    }
     const needM = techNeedMult();
 
     const winter = season === 3, summer = season === 1, snowing = F.weather === 'snow';
@@ -505,7 +515,7 @@
       // if the chosen target is across a wall, steer to the nearest OPEN gate first (never at a diagonal into a corner)
       for (const pen of F.pens) { const inNow = penInsideStrict(pen, s.x, s.y), inTgt = penInsideStrict(pen, s.tx, s.ty); if (inNow !== inTgt && pen.gateOpen) { let best = null, bd = 1e9; for (const side of gateSides(pen)) { const g = gateCenterFor(pen, side); const dd = dist(s.x, s.y, g.x, g.y); if (dd < bd) { bd = dd; best = g; } } if (best) { s.tx = best.x; s.ty = best.y; } } }
 
-      const spd = foxFlee ? 2.4 : toPen ? 1.6 : dogNudge ? 1.9 : (s.role === 'lamb' ? 0.9 : 0.6);
+      const spd = foxFlee ? 2.4 : toPen ? 2.0 : dogNudge ? 1.9 : (s.role === 'lamb' ? 0.9 : 0.6);
       const a = Math.atan2(s.ty - s.y, s.tx - s.x);
       if (dist(s.x, s.y, s.tx, s.ty) > 4) { s.y = clamp(s.y + Math.sin(a) * spd * dt, paddock.y + 24, paddock.y + paddock.h - 24); const b = fieldBounds(s.y); s.x = clamp(s.x + Math.cos(a) * spd * dt, b.left, b.right); }
 
