@@ -61,7 +61,10 @@
     bunk: { name: 'Bunkhouse', emoji: '🛖', coin: 260, wood: 30, stone: 0, w: 54, h: 40, desc: 'Houses +2 farmhands (raises your worker cap).' },
     well: { name: 'Well', emoji: '💧', coin: 160, wood: 12, stone: 8, w: 34, h: 34, desc: 'Slowly tops up the water trough.' },
     haybarn: { name: 'Hay Barn', emoji: '🌾', coin: 200, wood: 18, stone: 0, w: 54, h: 44, desc: 'Slowly tops up the feed trough.' },
+    vet: { name: 'Vet Hut', emoji: '🩺', coin: 280, wood: 22, stone: 6, w: 46, h: 42, desc: 'Heals sick 🤒 sheep that wander near it.' },
   };
+  const SEASONS = [{ name: 'Spring', ic: '🌱', grass: '#59ad4f' }, { name: 'Summer', ic: '☀️', grass: '#6bbf46' }, { name: 'Autumn', ic: '🍂', grass: '#a88a3a' }, { name: 'Winter', ic: '❄️', grass: '#b9c4cc' }];
+  const SEASON_LEN = 5400 * 2;   // two day-cycles per season
   const TECH = {
     shears: { name: 'Sharper Shears', emoji: '✂️', coin: 400, wood: 0, stone: 0, desc: '+25% wool from every shear.' },
     hardy: { name: 'Hardy Breeds', emoji: '💪', coin: 500, wood: 20, stone: 0, desc: 'Sheep get hungry & thirsty 20% slower.' },
@@ -70,6 +73,7 @@
     pasture: { name: 'Rich Pastures', emoji: '🌾', coin: 350, wood: 15, stone: 0, desc: 'Grass & bushes regrow twice as fast.' },
     guard: { name: 'Guard Training', emoji: '🎖️', coin: 600, wood: 0, stone: 20, desc: 'Dogs catch predators from further away.' },
     masonry: { name: 'Masonry', emoji: '🧱', coin: 500, wood: 0, stone: 30, desc: 'Stone pen upgrades cost far less stone.' },
+    vaccine: { name: 'Vaccination', emoji: '💉', coin: 550, wood: 0, stone: 0, desc: 'Sheep are far less likely to fall ill.' },
   };
   const STONE_PEN_COST = 30;
 
@@ -82,7 +86,7 @@
     dogs: { woofa: true }, upgrades: { tractor: false },
     pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: false }],
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
-    dayT: 0, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
+    dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
   });
   const WIN_MONEY = 10000;   // amass this in the Sheep Empire era to win the Golden Fleece
 
@@ -131,6 +135,10 @@
   }
   const isNight = () => nightAmt() > 0.5;
   let wasNight = false;
+  // ---------- seasons / weather ----------
+  const seasonIx = () => Math.floor((F.seasonT || 0) / SEASON_LEN) % 4;
+  function pickWeather(s) { const r = Math.random(); if (s === 3) return r < 0.45 ? 'snow' : 'clear'; if (s === 1) return r < 0.18 ? 'rain' : r < 0.30 ? 'drought' : 'clear'; return r < 0.32 ? 'rain' : 'clear'; }
+  function hasBuilding(k) { return F.buildings.some(b => b.bkind === k); }
   // worker level speed / xp
   function workerSpeedMul(w) { return 1 + ((w.level || 1) - 1) * 0.12; }
   function gainXp(w) { if ((w.level || 1) >= 5) return; w.xp = (w.xp || 0) + 1; if (w.xp >= (w.level || 1) * 8) { w.xp = 0; w.level = (w.level || 1) + 1; pop(w.x, w.y - 16, '⭐Lv' + w.level, '#ffd23d'); sfx.up(); syncWorkerJobs(); } }
@@ -159,6 +167,7 @@
       hunger: o.hunger != null ? o.hunger : rand(10, 30), thirst: o.thirst != null ? o.thirst : rand(10, 30),
       wool: o.wool != null ? o.wool : rand(0, 25), size: o.role === 'lamb' ? 0.4 : (o.size != null ? o.size : 0.85),
       age: o.role === 'lamb' ? 0 : 999, health: 100, starve: 0, baaT: 0, heartT: 0, face: rand(0, 6), breedCD: rand(600, 1200),
+      sick: !!o.sick, sickT: 0,
     };
   }
   function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1, orbit: rand(0, 6), _fx: null }; }
@@ -195,6 +204,8 @@
   const penInside = (p, x, y) => x > p.x - 4 && x < p.x + p.w + 4 && y > p.y - 4 && y < p.y + p.h + 4;
   const penInsideStrict = (p, x, y) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h;
   function insideAnyPen(x, y) { for (const p of F.pens) if (penInsideStrict(p, x, y)) return p; return null; }
+  // a sheep tucked inside a stone pen is safe from any predator that hasn't come through the gate
+  function predShielded(s, fx) { for (const p of F.pens) if (p.stone && penInsideStrict(p, s.x, s.y) && !penInsideStrict(p, fx.x, fx.y)) return true; return false; }
   function penCorners(p) { return [{ k: 'nw', x: p.x, y: p.y }, { k: 'ne', x: p.x + p.w, y: p.y }, { k: 'sw', x: p.x, y: p.y + p.h }, { k: 'se', x: p.x + p.w, y: p.y + p.h }]; }
   const penTick = (p) => ({ x: p.x + p.w / 2 - 30, y: p.y - 22 });
   const penScrap = (p) => ({ x: p.x + p.w / 2 + 30, y: p.y - 22 });
@@ -204,7 +215,7 @@
 
   // ---------- persistence ----------
   function load() { try { const r = localStorage.getItem(SAVE_KEY); if (!r) return defaultSave(); return Object.assign(defaultSave(), JSON.parse(r)); } catch (e) { return defaultSave(); } }
-  function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age })); try { localStorage.setItem(SAVE_KEY, JSON.stringify(F)); } catch (e) {} }
+  function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age, sick: s.sick })); try { localStorage.setItem(SAVE_KEY, JSON.stringify(F)); } catch (e) {} }
 
   function startGame() {
     F = load(); layout();
@@ -212,6 +223,7 @@
     if (typeof F.wood !== 'number') F.wood = 25; if (typeof F.stone !== 'number') F.stone = 0;
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
     if (typeof F.dayT !== 'number') F.dayT = 0; if (F.won == null) F.won = false;
+    if (typeof F.seasonT !== 'number') F.seasonT = 0; if (!F.weather) F.weather = 'clear'; if (typeof F.weatherT !== 'number') F.weatherT = 900;
     if (!F.troughs) { F.troughs = defaultTroughs(); layout(); }
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
@@ -304,15 +316,35 @@
   function scrapPen(p) { const i = F.pens.indexOf(p); if (i < 0) return; F.pens.splice(i, 1); if (herdGoal && herdGoal.pen === p) herdGoal = null; selectedPen = null; F.money += 40; if (p.stone) F.stone += 12; toast('🗑️ Pen scrapped (+$40)'); pop(p.x + p.w / 2, p.y, '🗑️', '#ff8a3d'); sfx.pop(); persist(); updateHud(); }
   function upgradePenStone(p) { const c = stonePenCost(); if (F.stone < c) { toast('Need 🪨' + c + ' stone to build stone walls'); sfx.err(); return; } F.stone -= c; p.stone = true; toast('🧱 Stone walls up! Predators can\'t get in (close the gate).'); confetti(p.x + p.w / 2, p.y, ['🧱', '🛡️']); sfx.build(); persist(); updateHud(); }
 
+  // a night pack raid led by an Alpha wolf (tough, needs walls + dogs)
+  function maybePackRaid() {
+    if (F._nofox || sheep.length === 0 || F.farmLevel < 3 || preds.some(p => p.alpha)) return;
+    if (Math.random() > 0.28 + (F.farmLevel - 3) * 0.06) return;
+    spawnPack();
+  }
+  function spawnPack() {
+    const spawnW = (left, alpha) => preds.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false, dead: false, facing: 1, wolf: true, alpha: !!alpha, hp: alpha ? 4 : 1, stun: 0 });
+    const left = Math.random() < 0.5; spawnW(left, true); spawnW(left, false); if (preds.length < 4) spawnW(!left, false);
+    flashAlert('🐺 WOLF PACK RAID! 🐺', '#c94a3a', true); toast('🐺 An ALPHA wolf leads a pack — pen your flock!'); sfx.wolf();
+  }
+
   // ---------- update ----------
   function update(dt) {
     if (!running || !F) return;
     tick += dt;
     F.dayT = (F.dayT || 0) + dt;
     const night = nightAmt(), nowNight = night > 0.5;
-    if (nowNight && !wasNight) { flashAlert('🌙 Night falls — watch for wolves!', '#7a8fff', true); toast('🌙 Night falls...'); }
+    if (nowNight && !wasNight) { flashAlert('🌙 Night falls — watch for wolves!', '#7a8fff', true); toast('🌙 Night falls...'); maybePackRaid(); }
     else if (!nowNight && wasNight) { toast('☀️ A new day dawns!'); }
     wasNight = nowNight;
+
+    // seasons + weather
+    F.seasonT = (F.seasonT || 0) + dt; const season = seasonIx();
+    F.weatherT -= dt;
+    if (F.weatherT <= 0) { F.weatherT = rand(1400, 3000); const nw = pickWeather(season); if (nw !== F.weather) { F.weather = nw; if (nw === 'rain') { flashAlert('🌧️ Rain — free water!', '#5aa0ff'); } else if (nw === 'snow') { flashAlert('❄️ Snowfall — grass is buried, keep them fed!', '#cdd6dd', true); } else if (nw === 'drought') { flashAlert('🏜️ Drought — water runs dry faster!', '#e0a03a'); } } }
+    if (F.weather === 'rain') F.water = clamp(F.water + 0.06 * dt, 0, 96);
+    else if (F.weather === 'drought') F.water = clamp(F.water - 0.01 * dt, 0, 100);
+    const seasonNeed = (season === 1 ? 1.15 : season === 3 ? 1.15 : 1);   // summer thirst / winter hunger both bite
 
     const e = F.energy;
     if (e === 1) { F.water = clamp(F.water + 0.05 * dt, 0, 62); }
@@ -330,17 +362,28 @@
     if (herdGoal) { herdGoal.t -= dt; if (herdGoal.t <= 0 || F.pens.indexOf(herdGoal.pen) < 0) herdGoal = null; }
     const needM = techNeedMult();
 
+    const winter = season === 3, summer = season === 1, snowing = F.weather === 'snow';
+    const vetOn = hasBuilding('vet'), sickChanceMul = (T('vaccine') ? 0.2 : 1);
     for (let i = sheep.length - 1; i >= 0; i--) {
       const s = sheep[i];
-      s.hunger = clamp(s.hunger + 0.015 * needM * dt, 0, 100); s.thirst = clamp(s.thirst + 0.018 * needM * dt, 0, 100);
-      s.health = clamp(100 - Math.max(0, s.hunger - 62) * 1.3 - Math.max(0, s.thirst - 62) * 1.3, 0, 100);
+      s.hunger = clamp(s.hunger + 0.015 * needM * (winter ? 1.15 : 1) * dt, 0, 100); s.thirst = clamp(s.thirst + 0.018 * needM * (summer ? 1.15 : 1) * dt, 0, 100);
+      // disease: sick sheep sicken, spread in crowds, and can be healed by a Vet Hut
+      if (s.sick) {
+        s.sickT += dt; s.health = clamp(s.health - 0.02 * dt, 0, 100);
+        let cured = false;
+        if (vetOn) for (const b of F.buildings) if (b.bkind === 'vet' && dist(s.x, s.y, b.x + b.w / 2, b.y + b.h / 2) < 70) { s.sickT -= 0.6 * dt; if (s.sickT <= 0) cured = true; }
+        if (cured || s.sickT > 900) { s.sick = false; s.sickT = 0; s.heartT = 24; pop(s.x, s.y - 12, '💚', '#58e08a'); }
+      } else if (s.role !== 'lamb' && Math.random() < 0.0000012 * sickChanceMul * dt * (s.health < 50 ? 3 : 1)) { s.sick = true; s.sickT = 0; pop(s.x, s.y - 12, '🤒', '#8fd06a'); }
+      s.health = clamp(100 - Math.max(0, s.hunger - 62) * 1.3 - Math.max(0, s.thirst - 62) * 1.3 - (s.sick ? 22 : 0), 0, 100);
       if (s.hunger >= 100 || s.thirst >= 100) s.starve += dt; else s.starve = Math.max(0, s.starve - dt * 0.5);
-      if (s.starve > 480) { sheep.splice(i, 1); toast('💀 A sheep died! Keep them fed and watered.'); pop(s.x, s.y, '💀', '#ff6a6a', true); sfx.err(); persist(); updateHud(); continue; }
+      if (s.starve > 480 || (s.sick && s.health <= 0)) { sheep.splice(i, 1); toast(s.sick ? '💀 A sick sheep was lost — build a Vet Hut!' : '💀 A sheep died! Keep them fed and watered.'); pop(s.x, s.y, '💀', '#ff6a6a', true); sfx.err(); persist(); updateHud(); continue; }
+      // spread to a close, healthy flockmate
+      if (s.sick && Math.random() < 0.0006 * sickChanceMul * dt) { for (const o of sheep) if (!o.sick && o.role !== 'lamb' && o !== s && dist(s.x, s.y, o.x, o.y) < 22) { o.sick = true; o.sickT = 0; pop(o.x, o.y - 12, '🤒', '#8fd06a'); break; } }
 
       if (s.role !== 'lamb') {
-        const grazing = grass.some(gr => gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 15) || F.plants.some(pl => pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 20);
+        const grazing = !snowing && (grass.some(gr => gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 15) || F.plants.some(pl => pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 20));
         const fed = F.feed > 0 || grazing, watered = F.water > 0;
-        const rate = 0.020 * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
+        const rate = 0.020 * (s.sick ? 0.15 : 1) * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
         s.wool = clamp(s.wool + rate * dt, 0, 100);
         if (fed && s.size < 1) s.size = clamp(s.size + 0.00012 * dt, 0.85, 1);
       } else { s.age += dt; if (s.age > 900) { s.role = rollRole(); s.size = 0.85; toast('🐑 A lamb grew up!'); pop(s.x, s.y, '🐑', '#fff'); } }
@@ -373,8 +416,9 @@
       for (const gr of grass) if (gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 14) { s.hunger = clamp(s.hunger - 0.03 * dt, 0, 100); gr.amt = clamp(gr.amt - 0.03 * dt, 0, 1); break; }
       for (const pl of F.plants) if (pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 18) { s.hunger = clamp(s.hunger - 0.05 * dt, 0, 100); pl.amt = clamp(pl.amt - 0.02 * dt, 0, 1); break; }
     }
-    const gRegrow = techGrass();
-    for (const gr of grass) gr.amt = clamp(gr.amt + 0.00035 * gRegrow * dt, 0, 1);
+    const wGrow = snowing ? 0 : F.weather === 'rain' ? 1.6 : F.weather === 'drought' ? 0.3 : winter ? 0.45 : 1;
+    const gRegrow = techGrass() * wGrow;
+    for (const gr of grass) gr.amt = clamp(gr.amt + 0.00035 * gRegrow * dt - (snowing ? 0.0006 * dt : 0), 0, 1);
     for (const pl of F.plants) { if (pl.type === 'bush') pl.amt = clamp((pl.amt == null ? 1 : pl.amt) + 0.0005 * gRegrow * dt, 0, 1); if (pl.type === 'tree') pl.wood = clamp((pl.wood == null ? 100 : pl.wood) + 0.012 * dt, 0, 100); if (pl.type === 'rock') pl.stone = clamp((pl.stone == null ? 100 : pl.stone) + 0.008 * dt, 0, 100); }
 
     updateWorkers(dt);
@@ -399,14 +443,16 @@
     for (let i = preds.length - 1; i >= 0; i--) {
       const fx = preds[i];
       if (fx.dead) { fx.x += fx.vx * dt; fx.y += fx.vy * dt; fx.vy += 0.12 * dt; fx.spin += 0.35 * dt; fx.tumble += dt; if (fx.x < -60 || fx.x > W + 60 || fx.y > H + 80 || fx.tumble > 130) preds.splice(i, 1); continue; }
-      let chased = false; for (const d of dogs) if (dist(d.x, d.y, fx.x, fx.y) < (fx.wolf ? 80 : 95) * dogRange) chased = true; if (chased) fx.fleeing = true;
+      let chased = false; for (const d of dogs) if (dist(d.x, d.y, fx.x, fx.y) < (fx.wolf ? 80 : 95) * dogRange) chased = true;
+      if (chased && !fx.alpha) fx.fleeing = true;
       let tx, ty;
-      if (fx.fleeing) { tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x - 40 : paddock.x + paddock.w + 40; ty = fx.y; }
-      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast((fx.wolf ? '🐺 A wolf' : '🦊 A fox') + ' took a sheep! Guard them!'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } fx.fleeing = true; } } else { fx.fleeing = true; tx = fx.x; ty = fx.y; } }
-      const a = Math.atan2(ty - fx.y, tx - fx.x), sp = fx.fleeing ? (fx.wolf ? 3.4 : 3.0) : (fx.wolf ? 2.1 : 1.5);
+      if (fx.stun > 0) { fx.stun -= dt; tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x + 20 : paddock.x + paddock.w - 20; ty = fx.y; }   // alpha recovering from a hit
+      else if (fx.fleeing) { tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x - 40 : paddock.x + paddock.w + 40; ty = fx.y; }
+      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16 && !predShielded(best, fx)) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast((fx.alpha ? '🐺 The ALPHA' : fx.wolf ? '🐺 A wolf' : '🦊 A fox') + ' took a sheep! Guard them!'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } if (fx.alpha) fx.stun = 30; else fx.fleeing = true; } } else { if (!fx.alpha) fx.fleeing = true; tx = fx.x; ty = fx.y; } }
+      const a = Math.atan2(ty - fx.y, tx - fx.x), sp = fx.stun > 0 ? 2.4 : fx.fleeing ? (fx.wolf ? 3.4 : 3.0) : (fx.alpha ? 2.4 : fx.wolf ? 2.1 : 1.5);
       fx.x += Math.cos(a) * sp * dt; fx.y += Math.sin(a) * sp * dt; fx.facing = Math.cos(a) >= 0 ? 1 : -1;
       repelFromPens(fx, 12, true);  // stone pens are predator-proof
-      if (fx.fleeing && (fx.x < paddock.x - 30 || fx.x > paddock.x + paddock.w + 30)) preds.splice(i, 1);
+      if (!fx.alpha && fx.fleeing && (fx.x < paddock.x - 30 || fx.x > paddock.x + paddock.w + 30)) preds.splice(i, 1);
     }
 
     const busy = new Set();
@@ -470,8 +516,11 @@
   }
 
   function catchPredator(fx, d) {
-    if (fx.dead) return; fx.dead = true; d.zoom = 1;
-    const wolf = fx.wolf;
+    if (fx.dead) return;
+    if (fx.alpha && fx.hp > 1) { fx.hp--; fx.stun = 55; const ang = Math.atan2(fx.y - d.y, fx.x - d.x); fx.x += Math.cos(ang) * 28; fx.y += Math.sin(ang) * 28; d.zoom = 1; pop(fx.x, fx.y - 14, '-1❤️', '#ff6a6a'); flashAlert('🐺 Alpha hit! ' + fx.hp + ' left', '#ffb03a'); sfx.wolf(); return; }
+    fx.dead = true; d.zoom = 1;
+    const wolf = fx.wolf, alpha = fx.alpha;
+    if (alpha) { F.money += 200; flashAlert('🏅 ALPHA DEFEATED! +$200', '#ffd23d', true); toast('🏅 Alpha wolf defeated! +$200'); const dir = fx.x < W / 2 ? 1 : -1; fx.vx = dir * rand(7, 12); fx.vy = rand(-11, -7); fx.spin = rand(0.4, 0.7); fx.tumble = 0; pop(fx.x, fx.y - 12, '💥', '#ffd23d', true); confetti(fx.x, fx.y, ['🏅', '💰', '⭐', '🦴', '💥']); sfx.boom(); updateHud(); return; }
     if (Math.random() < (wolf ? 0.55 : 0.45)) { const dir = fx.x < W / 2 ? 1 : -1; fx.vx = dir * rand(6, 11); fx.vy = rand(-10, -6); fx.spin = rand(0.3, 0.6); fx.tumble = 0; flashAlert((wolf ? '🐺 WOLF' : '🦊 FOX') + ' TERMINATED! 💥', '#ffd23d', true); toast('💥 ' + (wolf ? 'WOLF' : 'FOX') + ' TERMINATED!'); pop(fx.x, fx.y - 10, '💥', '#ffd23d', true); confetti(fx.x, fx.y, ['💥', '⭐', '🦴']); sfx.boom(); }
     else { const dir = fx.x < W / 2 ? -1 : 1; fx.vx = dir * rand(4, 6); fx.vy = rand(-3, -1); fx.spin = rand(-0.2, 0.2); fx.tumble = 60; pop(fx.x, fx.y - 8, '💨', '#cfd8e6'); sfx.pop(); }
   }
@@ -489,7 +538,7 @@
     const far = fieldBounds(paddock.y), near = fieldBounds(paddock.y + paddock.h);
     const fL = far.left, fR = far.right, nL = near.left, nR = near.right, ty0 = paddock.y, ty1 = paddock.y + paddock.h;
     ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.moveTo(fL - 12, ty0 - 9); ctx.lineTo(fR + 12, ty0 - 9); ctx.lineTo(nR + 12, ty1 + 10); ctx.lineTo(nL - 12, ty1 + 10); ctx.closePath(); ctx.fill();
-    const g = ctx.createLinearGradient(0, ty0, 0, ty1); g.addColorStop(0, '#3a8340'); g.addColorStop(1, '#59ad4f');
+    const g = ctx.createLinearGradient(0, ty0, 0, ty1); g.addColorStop(0, '#3a8340'); g.addColorStop(1, SEASONS[seasonIx()].grass);
     ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(fL, ty0); ctx.lineTo(fR, ty0); ctx.lineTo(nR, ty1); ctx.lineTo(nL, ty1); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     for (let i = 1; i < 10; i++) { const t = i / 10, yy = ty0 + t * (ty1 - ty0), lx = fL + t * (nL - fL), rx = fR + t * (nR - fR); ctx.lineWidth = 1 + t * 1.6; ctx.beginPath(); ctx.moveTo(lx, yy); ctx.lineTo(rx, yy); ctx.stroke(); }
@@ -517,9 +566,21 @@
 
     for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.font = '900 ' + p.sz + 'px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = p.col; ctx.fillText(p.txt, 0, 0); ctx.restore(); } ctx.globalAlpha = 1;
+    drawWeather();
     drawNight();
+    drawSeasonLabel();
     drawMinimap();
     drawAlerts();
+  }
+
+  function drawSeasonLabel() {
+    const s = SEASONS[seasonIx()], wIc = F.weather === 'rain' ? '🌧️' : F.weather === 'snow' ? '❄️' : F.weather === 'drought' ? '🏜️' : (isNight() ? '🌙' : '☀️');
+    ctx.globalAlpha = 0.85; ctx.fillStyle = 'rgba(11,18,32,0.55)'; roundRect(10, paddock.y - 26, 96, 20, 8); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#eaf0ff'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s.ic + ' ' + s.name + ' ' + wIc, 16, paddock.y - 16);
+  }
+  function drawWeather() {
+    if (F.weather === 'rain') { ctx.strokeStyle = 'rgba(150,190,255,0.5)'; ctx.lineWidth = 1.4; for (let i = 0; i < 60; i++) { const x = (i * 137 + tick * 6) % (W + 20) - 10, y = (i * 89 + tick * 11) % H; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 10); ctx.stroke(); } }
+    else if (F.weather === 'snow') { ctx.fillStyle = 'rgba(255,255,255,0.85)'; for (let i = 0; i < 70; i++) { const x = (i * 121 + Math.sin(tick / 30 + i) * 14) % (W + 20) - 10, y = (i * 97 + tick * 2.2) % H; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 7); ctx.fill(); } }
   }
 
   function drawNight() {
@@ -632,6 +693,7 @@
     else if (b.bkind === 'bunk') { ctx.fillStyle = '#8a5a3a'; ctx.fillRect(x + 4, y + 14, w - 8, h - 14); ctx.fillStyle = '#6a4028'; ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x + w / 2 - 5, y + h - 14, 10, 14); ctx.fillStyle = '#bfe6ff'; ctx.fillRect(x + 8, y + 20, 7, 7); ctx.fillRect(x + w - 15, y + 20, 7, 7); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🛏️', x + w / 2, y + h - 3); }
     else if (b.bkind === 'well') { ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.45, 6, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#3ba7e0'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.3, 4, 0, 0, 7); ctx.fill(); ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + 6, y + h - 8); ctx.lineTo(x + 8, y); ctx.moveTo(x + w - 6, y + h - 8); ctx.lineTo(x + w - 8, y); ctx.stroke(); ctx.fillStyle = '#8a4030'; ctx.beginPath(); ctx.moveTo(x + 2, y + 2); ctx.lineTo(x + w / 2, y - 8); ctx.lineTo(x + w - 2, y + 2); ctx.closePath(); ctx.fill(); }
     else if (b.bkind === 'haybarn') { ctx.fillStyle = '#b04a3a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); ctx.fillStyle = '#7a2f28'; ctx.beginPath(); ctx.moveTo(x, y + 18); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 18); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#e0c060'; ctx.fillRect(x + 8, y + h - 12, 10, 10); ctx.fillRect(x + w - 18, y + h - 12, 10, 10); ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🌾', x + w / 2, y + h - 2); }
+    else if (b.bkind === 'vet') { ctx.fillStyle = '#f4f3ee'; ctx.fillRect(x + 4, y + 14, w - 8, h - 14); ctx.fillStyle = '#c85a5a'; ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3aa64a'; ctx.fillRect(x + w / 2 - 8, y + 22, 16, 5); ctx.fillRect(x + w / 2 - 2.5, y + 16, 5, 16); ctx.fillStyle = '#5a3a2a'; ctx.fillRect(x + 8, y + h - 12, 9, 12); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🩺', x + w - 12, y + h - 3); }
   }
   function drawWorker(w) {
     const sc = dscale(w.y), f = w.facing || 1, col = WORKER[w.job].col, bob = Math.abs(Math.sin(w.step / 6)) * 2;
@@ -670,17 +732,19 @@
     if (ready) { ctx.font = (15 * sc) + 'px system-ui'; ctx.fillText('✂️', s.x, s.y - fluffR - 12 + Math.sin(tick / 6) * 2); }
     if (s.heartT > 0) { ctx.globalAlpha = clamp(s.heartT / 24, 0, 1); ctx.font = (13 * sc) + 'px system-ui'; ctx.fillText('💗', s.x + fluffR * 0.6, s.y + bob - fluffR - 2); ctx.globalAlpha = 1; }
     if (s.baaT > 0) { ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 11px system-ui'; ctx.fillText('baa!', s.x + fluffR, s.y + bob - fluffR); }
-    if (s.health < 40) { ctx.font = '13px system-ui'; ctx.fillText(s.hunger > s.thirst ? '🌾' : '💧', s.x, s.y - fluffR - 10); }
+    if (s.sick) { ctx.globalAlpha = 0.28; ctx.fillStyle = '#8fd06a'; ctx.beginPath(); ctx.ellipse(s.x, s.y + bob, fluffR, fluffR * 0.8, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; ctx.font = (13 * sc) + 'px system-ui'; ctx.fillText('🤒', s.x, s.y - fluffR - 10); }
+    else if (s.health < 40) { ctx.font = '13px system-ui'; ctx.fillText(s.hunger > s.thirst ? '🌾' : '💧', s.x, s.y - fluffR - 10); }
   }
   function drawPredator(fx) {
-    const wolf = fx.wolf, sc = dscale(fx.y) * (wolf ? 1.3 : 1), f = fx.facing || 1; ctx.save(); ctx.translate(fx.x, fx.y); if (fx.dead) ctx.rotate(fx.spin ? (fx.spin * (fx.tumble || 0)) : 0); ctx.scale(f * sc, sc); if (!fx.dead) shadowLocal(0, 7, wolf ? 15 : 12);
+    const wolf = fx.wolf, alpha = fx.alpha, sc = dscale(fx.y) * (alpha ? 1.7 : wolf ? 1.3 : 1), f = fx.facing || 1; ctx.save(); ctx.translate(fx.x, fx.y); if (fx.dead) ctx.rotate(fx.spin ? (fx.spin * (fx.tumble || 0)) : 0); ctx.scale(f * sc, sc); if (!fx.dead) shadowLocal(0, 7, wolf ? 15 : 12);
     if (wolf) {
-      ctx.fillStyle = '#6a6f76'; ctx.beginPath(); ctx.ellipse(0, 0, 15, 7, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = alpha ? '#4a4f56' : '#6a6f76'; ctx.beginPath(); ctx.ellipse(0, 0, 15, 7, 0, 0, 7); ctx.fill();
       ctx.beginPath(); ctx.moveTo(-13, -2); ctx.lineTo(-22, -8); ctx.lineTo(-13, 4); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#5a5f66'; ctx.beginPath(); ctx.arc(13, -3, 6, 0, 7); ctx.fill();
       ctx.beginPath(); ctx.moveTo(10, -8); ctx.lineTo(12, -15); ctx.lineTo(15, -8); ctx.fill(); ctx.beginPath(); ctx.moveTo(14, -8); ctx.lineTo(16, -14); ctx.lineTo(18, -7); ctx.fill();
       ctx.fillStyle = '#3a3f46'; ctx.beginPath(); ctx.arc(19, -2, 1.6, 0, 7); ctx.fill();
-      ctx.fillStyle = '#ffd23d'; ctx.beginPath(); ctx.arc(16, -4, 1.3, 0, 7); ctx.fill();
+      ctx.fillStyle = alpha ? '#ff3a2a' : '#ffd23d'; ctx.beginPath(); ctx.arc(16, -4, alpha ? 1.7 : 1.3, 0, 7); ctx.fill();
+      if (alpha) { ctx.fillStyle = '#ff3a2a'; ctx.beginPath(); ctx.arc(13, -4, 1.5, 0, 7); ctx.fill(); ctx.fillStyle = '#ffd23d'; ctx.font = '8px system-ui'; ctx.textAlign = 'center'; ctx.fillText('👑', 12, -14); }
     } else {
       ctx.fillStyle = '#d9662e'; ctx.beginPath(); ctx.ellipse(0, 0, 13, 6, 0, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(-11, -2); ctx.lineTo(-20, -6); ctx.lineTo(-11, 3); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-20, -6); ctx.lineTo(-17, -4); ctx.lineTo(-19, -2); ctx.closePath(); ctx.fill();
@@ -688,6 +752,7 @@
       ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(16, -2, 1.3, 0, 7); ctx.fill();
     }
     if (fx.dead) { ctx.fillStyle = '#111'; ctx.font = '900 6px system-ui'; ctx.textAlign = 'center'; ctx.fillText('x', wolf ? 17 : 15, -3); } ctx.restore();
+    if (alpha && !fx.dead) { const bw = 28, by = fx.y - 22; ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(fx.x - bw / 2, by, bw, 4); ctx.fillStyle = '#ff5a5a'; ctx.fillRect(fx.x - bw / 2, by, bw * clamp(fx.hp / 4, 0, 1), 4); }
   }
   function drawDog(d) {
     const sc = dscale(d.y), f = d.facing || 1; ctx.save(); ctx.translate(d.x, d.y); ctx.scale(f * sc, sc); shadowLocal(0, 8, 12);
@@ -807,6 +872,7 @@
     rows.push({ emoji: '🌳', name: 'Plant a Tree', desc: 'More 🪵 wood for Woodcutters, and prettier.', act: { label: '$70', fn: plantTree, afford: F.money >= 70 } });
     rows.push({ emoji: '🪨', name: 'Haul in a Boulder', desc: 'A rock for Miners to dig 🪨 stone from.', act: { label: '$90', fn: addRock, afford: F.money >= 90 } });
     rows.push({ emoji: '🌿', name: 'Plant a Grazing Bush', desc: 'A lush bush the sheep nibble — free food that regrows.', act: { label: '$50', fn: plantBush, afford: F.money >= 50 } });
+    { const sickN = sheep.filter(s => s.sick).length, vcost = 40 + sickN * 20; rows.push({ emoji: '💊', name: 'Call the Vet', desc: sickN ? 'Instantly cure all ' + sickN + ' sick 🤒 sheep.' : 'No sick sheep right now — build a 🩺 Vet Hut to auto-heal.', act: sickN ? { label: '$' + vcost, fn: callVet, afford: F.money >= vcost } : { tag: 'Healthy' } }); }
     const nextEra = ERAS[Math.min(F.farmLevel, ERAS.length - 1)];
     rows.push({ emoji: nextEra.ic, name: F.farmLevel >= ERAS.length ? 'Sheep Empire (max era)' : 'Advance to ' + nextEra.name, desc: 'Bigger land, +5 sheep cap, +worker cap, +wool price, a new tree.', act: F.farmLevel >= ERAS.length ? { tag: 'MAX' } : { label: '$' + expandCost(), fn: buyExpand, afford: F.money >= expandCost() } });
     rows.push({ head: '🐾 Guard Dogs' });
@@ -831,6 +897,7 @@
   function plantTree() { if (F.money < 70) return; F.money -= 70; F.plants.push({ type: 'tree', x: rand(paddock.x + 40, paddock.x + paddock.w - 40), y: paddock.y + rand(24, paddock.h * 0.5), sz: rand(0.85, 1.15), wood: 100 }); toast('🌳 Planted a tree!'); sfx.pop(); persist(); }
   function addRock() { if (F.money < 90) return; F.money -= 90; const y = rand(paddock.y + paddock.h * 0.15, paddock.y + paddock.h * 0.5); const b = fieldBounds(y); F.plants.push({ type: 'rock', x: rand(b.left + 10, b.right - 10), y, sz: rand(0.9, 1.1), stone: 100 }); toast('🪨 A boulder was hauled in!'); sfx.pop(); persist(); }
   function plantBush() { if (F.money < 50) return; F.money -= 50; const y = rand(paddock.y + paddock.h * 0.35, paddock.y + paddock.h - 40); const b = fieldBounds(y); F.plants.push({ type: 'bush', x: rand(b.left + 10, b.right - 10), y, sz: 1, amt: 1 }); toast('🌿 Planted a grazing bush!'); sfx.pop(); persist(); }
+  function callVet() { const sickN = sheep.filter(s => s.sick).length; if (!sickN) return; const cost = 40 + sickN * 20; if (F.money < cost) return; F.money -= cost; for (const s of sheep) if (s.sick) { s.sick = false; s.sickT = 0; s.heartT = 24; pop(s.x, s.y - 12, '💚', '#58e08a'); } toast('💊 The vet cured your flock!'); confetti(W / 2, H * 0.4, ['💚', '🩺', '✨']); sfx.up(); persist(); updateHud(); }
 
   // ---------- loop ----------
   let lastT = performance.now(), lastErr = null;
@@ -841,13 +908,14 @@
   if (location.hash.indexOf('debug') !== -1) {
     window.__farm = {
       start: startGame, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, night: +nightAmt().toFixed(2), isNight: isNight(), won: !!F.won, workerLvls: workers.map(w => w.level || 1) } : { running }; },
+      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, night: +nightAmt().toFixed(2), isNight: isNight(), won: !!F.won, workerLvls: workers.map(w => w.level || 1), season: SEASONS[seasonIx()].name, weather: F.weather, sick: sheep.filter(s => s.sick).length, alpha: preds.filter(p => p.alpha && !p.dead).length } : { running }; },
       lastErr() { return lastErr ? String(lastErr && lastErr.stack || lastErr) : null; },
       give(m) { F.money += m; updateHud(); }, giveWood(w) { F.wood += w; updateHud(); }, giveStone(s) { F.stone += s; updateHud(); }, feed: refillFeed, water: refillWater, sell: sellWool,
       forceWool() { for (const s of sheep) if (s.role !== 'lamb') s.wool = 100; }, shearAll() { for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb') { if (!insideAnyPen(s.x, s.y)) { s.x = F.pens[0] ? F.pens[0].x + F.pens[0].w / 2 : s.x; s.y = F.pens[0] ? F.pens[0].y + F.pens[0].h / 2 : s.y; } shearSheep(s); } },
       spawnFox() { predTimer = -5; }, pushFox(wolf) { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: !!wolf }); }, pushWolf() { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: true }); }, killFox() { const t = preds.find(p => !p.dead); if (t && dogs[0]) catchPredator(t, dogs[0]); },
       noFox() { F._nofox = true; preds.length = 0; }, foxOn() { F._nofox = false; },
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
+      addSheep(n) { for (let i = 0; i < (n || 1); i++) sheep.push(makeSheep({ role: i % 2 ? 'ram' : 'ewe', wool: 0 })); updateHud(); },
       hire: hireWorker, fire() { if (workers.length) { workers.pop(); syncWorkerJobs(); } }, setJob(i, j) { if (workers[i]) { workers[i].job = j; syncWorkerJobs(); } },
       research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
       buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
@@ -858,6 +926,7 @@
       putSheepIn(i) { const p = F.pens[i]; if (!p) return; for (const s of sheep) { s.x = p.x + p.w / 2 + rand(-p.w * 0.3, p.w * 0.3); s.y = p.y + p.h / 2 + rand(-p.h * 0.3, p.h * 0.3); } },
       tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
       setDay(phase) { F.dayT = phase * DAY_LEN; }, night() { return nightAmt(); }, goal() { return goalInfo(); }, levelUpAll() { for (const w of workers) { w.level = 5; } syncWorkerJobs(); }, workXp() { for (const w of workers) gainXp(w); },
+      setSeason(i) { F.seasonT = i * SEASON_LEN; }, setWeather(w) { F.weather = w; }, makeSick(n) { let c = 0; for (const s of sheep) { if (c >= (n || 1)) break; if (s.role !== 'lamb' && !s.sick) { s.sick = true; s.sickT = 0; c++; } } return c; }, callVet, packRaid: spawnPack,
       flockSpread() { if (sheep.length < 2) return 0; const c = flockCentroid(); let d = 0; for (const s of sheep) d += Math.hypot(s.x - c.x, s.y - c.y); return Math.round(d / sheep.length); },
       dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length, preds: preds.length }; },
     };
