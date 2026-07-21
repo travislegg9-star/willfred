@@ -95,11 +95,16 @@
   let tractor = null, paddock = {}, feedTrough = {}, waterTrough = {}, shed = {}, house = {};
   let running = false, tick = 0, breedTimer = 1600, predTimer = 1600, alertTimer = 0;
   let placing = null, drag = null, selectedPen = null, herdGoal = null;
+  let cam = { x: 0, y: 0 }, viewH = 0, panLast = null;   // vertical camera for the scrollable map
 
   function spaceMargins() { const lvl = F ? F.farmLevel : 1; return { top: Math.max(150, 178 - (lvl - 1) * 6), bot: 128, mx: Math.max(6, 18 - (lvl - 1) * 2) }; }
+  function worldScale() { return 1 + ((F ? F.farmLevel : 1) - 1) * 0.15; }   // taller world as the empire grows
+  function camMaxY() { return Math.max(0, paddock.h - viewH); }
   function layout() {
     const m = spaceMargins();
-    paddock = { x: m.mx, y: m.top, w: W - m.mx * 2, h: H - m.top - m.bot };
+    viewH = H - m.top - m.bot;
+    paddock = { x: m.mx, y: m.top, w: W - m.mx * 2, h: viewH * worldScale() };
+    cam.y = clamp(cam.y, 0, camMaxY());
     if (F && F.troughs) { feedTrough = F.troughs.feed; waterTrough = F.troughs.water; }
     shed = { x: paddock.x + paddock.w - 60, y: paddock.y + 8 };
     house = { x: paddock.x + 46, y: paddock.y + 12 };
@@ -248,7 +253,7 @@
   }
 
   // ---------- input ----------
-  function pt(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; }
+  function pt(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top + cam.y }; }
   function nearGate(p, x, y) { const g = gateCenter(p); return dist(x, y, g.x, g.y) < gateWidth(p) / 2 + 8; }
   function wallMidHit(p, x, y) { const mids = [{ s: 0, x: p.x + p.w / 2, y: p.y + p.h }, { s: 1, x: p.x + p.w / 2, y: p.y }, { s: 2, x: p.x, y: p.y + p.h / 2 }, { s: 3, x: p.x + p.w, y: p.y + p.h / 2 }]; for (const m of mids) if (dist(x, y, m.x, m.y) < 20) return m.s; return -1; }
 
@@ -298,12 +303,17 @@
     } else { const t = drag.ref; t.y = clamp(p.y - drag.oy, paddock.y + 26, paddock.y + paddock.h - 20); const b = fieldBounds(t.y); t.x = clamp(p.x - drag.ox, b.left, b.right); }
   }
   function onUp() { if (drag) { persist(); drag = null; } }
-  canvas.addEventListener('touchstart', onDown, { passive: false });
-  canvas.addEventListener('touchmove', (e) => { if (placing || drag) e.preventDefault(); onMove(e); }, { passive: false });
-  canvas.addEventListener('touchend', onUp);
+  const twoFingerY = (e) => (e.touches[0].clientY + e.touches[1].clientY) / 2;
+  canvas.addEventListener('touchstart', (e) => { if (e.touches.length >= 2) { panLast = twoFingerY(e); return; } onDown(e); }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (e.touches.length >= 2) { e.preventDefault(); const avg = twoFingerY(e); if (panLast != null && camMaxY() > 0) cam.y = clamp(cam.y - (avg - panLast), 0, camMaxY()); panLast = avg; return; }
+    if (placing || drag) e.preventDefault(); onMove(e);
+  }, { passive: false });
+  canvas.addEventListener('touchend', (e) => { if (!e.touches || e.touches.length === 0) panLast = null; onUp(e); });
   canvas.addEventListener('mousedown', onDown);
   window.addEventListener('mousemove', (e) => { if (placing || drag) onMove(e); });
   window.addEventListener('mouseup', onUp);
+  canvas.addEventListener('wheel', (e) => { if (camMaxY() > 0) { e.preventDefault(); cam.y = clamp(cam.y + e.deltaY * 0.5, 0, camMaxY()); } }, { passive: false });
 
   function herdTo(x, y) { x = clamp(x, paddock.x + 16, paddock.x + paddock.w - 16); y = clamp(y, paddock.y + 16, paddock.y + paddock.h - 16); for (const d of dogs) { d.tx = x + rand(-18, 18); d.ty = y + rand(-14, 14); d.moveT = 90; d.zoom = 1; } if (tractor) { tractor.tx = x; tractor.ty = y; tractor.zoom = 1; } pop(x, y, '🐾', '#fff'); }
   function woofaGather() {
@@ -529,6 +539,7 @@
   function render() {
     ctx.fillStyle = '#0c1a12'; ctx.fillRect(0, 0, W, H);
     if (!F) return;
+    ctx.save(); ctx.translate(0, -cam.y);   // ← camera: world layer scrolls, screen overlays drawn after restore
     const sky = ctx.createLinearGradient(0, 0, 0, paddock.y + 20); sky.addColorStop(0, '#8fd0ff'); sky.addColorStop(1, '#e8f6ff');
     ctx.fillStyle = sky; ctx.fillRect(0, 0, W, paddock.y);
     ctx.fillStyle = '#6fae5e'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 60) ctx.lineTo(x, paddock.y - 20 - Math.sin(x / 130) * 16); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
@@ -566,6 +577,7 @@
 
     for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.font = '900 ' + p.sz + 'px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = p.col; ctx.fillText(p.txt, 0, 0); ctx.restore(); } ctx.globalAlpha = 1;
+    ctx.restore();   // ← end camera: overlays below are screen-space
     drawWeather();
     drawNight();
     drawSeasonLabel();
@@ -617,6 +629,7 @@
     ctx.fillStyle = '#3a6ea5'; for (const w of workers) { ctx.beginPath(); ctx.arc(sx(w.x), sy(w.y), 1.4, 0, 7); ctx.fill(); }
     for (const fx of preds) { if (fx.dead) continue; ctx.fillStyle = fx.wolf ? '#c94a3a' : '#ff8a3d'; ctx.beginPath(); ctx.arc(sx(fx.x), sy(fx.y), 1.8, 0, 7); ctx.fill(); }
     ctx.fillStyle = '#1a1a1e'; for (const d of dogs) { ctx.beginPath(); ctx.arc(sx(d.x), sy(d.y), 1.5, 0, 7); ctx.fill(); }
+    if (camMaxY() > 0) { const vy = my + (cam.y / paddock.h) * mh, vh = (viewH / paddock.h) * mh; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2; ctx.strokeRect(mx + 0.5, vy + 0.5, mw - 1, vh); }
     ctx.globalAlpha = 1;
   }
 
@@ -927,6 +940,7 @@
       tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
       setDay(phase) { F.dayT = phase * DAY_LEN; }, night() { return nightAmt(); }, goal() { return goalInfo(); }, levelUpAll() { for (const w of workers) { w.level = 5; } syncWorkerJobs(); }, workXp() { for (const w of workers) gainXp(w); },
       setSeason(i) { F.seasonT = i * SEASON_LEN; }, setWeather(w) { F.weather = w; }, makeSick(n) { let c = 0; for (const s of sheep) { if (c >= (n || 1)) break; if (s.role !== 'lamb' && !s.sick) { s.sick = true; s.sickT = 0; c++; } } return c; }, callVet, packRaid: spawnPack,
+      camInfo() { return { y: Math.round(cam.y), max: Math.round(camMaxY()), viewH: Math.round(viewH), worldH: Math.round(paddock.h), scale: +worldScale().toFixed(2) }; }, setCam(y) { cam.y = clamp(y, 0, camMaxY()); return Math.round(cam.y); },
       flockSpread() { if (sheep.length < 2) return 0; const c = flockCentroid(); let d = 0; for (const s of sheep) d += Math.hypot(s.x - c.x, s.y - c.y); return Math.round(d / sheep.length); },
       dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length, preds: preds.length }; },
     };
