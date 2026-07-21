@@ -80,6 +80,7 @@
 
   // ---------- Scenes ----------
   const SCENES = [
+    { name: 'Footy Ground', sky: ['#63b8ff', '#bfe6ff'], ground: '#3f9e4a', groundDark: '#2c7a36', accent: '#5cc06a', footy: true },
     { name: 'Backyard',   sky: ['#7fc7ff', '#cdeaff'], ground: '#5aa64a', groundDark: '#3f7d33', accent: '#6fbf5c' },
     { name: 'The Park',   sky: ['#63b8ff', '#bfe6ff'], ground: '#4f9e46', groundDark: '#377a30', accent: '#63b055' },
     { name: 'Playground', sky: ['#8fd0ff', '#d8f0ff'], ground: '#c98f5a', groundDark: '#a2703f', accent: '#e0a86e' },
@@ -107,6 +108,13 @@
   let worldWidth = 1400;
   let gravity = 0.5;
   let wind = 0;
+
+  // camera zoom + focus (world point shown at screen centre) — used to punch in on tantrums
+  let camZoom = 1, camFX = 0, camFY = 0;
+  let droppedStreak = 0;   // consecutive drops → Woofa gets hungry and runs them down
+  let goalX = 1200;        // footy goal line (world x), out past the kids
+  const woofaEat = { active: false, x: 0, phase: 'run', chompT: 0 };
+  const TANTRUM_LINES = ["NO! That's not a goal!", "You DIDN'T catch that!", "That's NOT FAIR!", "I want a new frisbee!", "You threw it WRONG!", "WAAAAAH!", "That's rubbish!!"];
 
   const thrower = { x: 70, handY: 0 };
   let ring = { x: 900, r: 70 };     // sweet-spot target ring (world x)
@@ -173,7 +181,8 @@
     ring.r = clamp(62 - step * 3.5, 28, 62);   // tighter sweet-spot
     gravity = 0.5;
     wind = windForLevel(step);
-    camX = 0;
+    goalX = worldWidth - 90;             // footy goals out past the kids
+    camX = 0; camZoom = 1; camFX = W / 2; camFY = H / 2;
     dog.x = ring.x + rand(-40, 40);
     dog.targetX = dog.x;
     dog.y = groundY();
@@ -187,7 +196,7 @@
     disc.x = thrower.x + 18;    // launches from Woofa's raised paw (he stands up to throw)
     disc.y = groundY() - 116;
     disc.vx = 0; disc.vy = 0; disc.spin = 0;
-    disc.live = false; disc.landed = false; disc.caught = false; disc.attempted = false;
+    disc.live = false; disc.landed = false; disc.caught = false; disc.attempted = false; disc.scored = false;
     thrower.handY = disc.y;
   }
 
@@ -288,6 +297,9 @@
     } else {
       camX = lerp(camX, 0, 0.1 * dt);
     }
+    // punch in hard on a meltdown / eating / explosion
+    const punchIn = dog.state === 'tantrum' || dog.state === 'eaten' || dog.state === 'boom';
+    camZoom = lerp(camZoom, punchIn ? 1.9 : 1, 0.08 * dt);
 
     if (state === STATE.FLY) updateFlight(dt);
     updateDog(dt);
@@ -309,7 +321,7 @@
     const gy = groundY();
 
     // Catch check — when disc gets near the dog and near catch height
-    const dogReach = 135;           // horizontal reach (tighter = precision matters)
+    const dogReach = 105;           // horizontal reach (tighter = must catch on the run)
     const nearDog = Math.abs(disc.x - dog.x) < dogReach;
     const catchable = (disc.y > gy - 230 && disc.vy > -2) || it.explosive; // rocket detonates on approach
     if (nearDog && catchable && !disc.caught) {
@@ -331,8 +343,25 @@
       }
     }
 
+    // Footy goal — sail it through the sticks (out past the kids) for bonus points
+    if (!disc.scored && !it.explosive && disc.x > goalX && disc.y > gy - 200 && disc.y < gy - 10) {
+      scoreGoal(); return;
+    }
+
     // Overshoot off the end of the world → gone (lose item flavour)
     if (disc.x > worldWidth + 60) resolveOvershoot();
+  }
+
+  function scoreGoal() {
+    if (state !== STATE.FLY) return;
+    disc.scored = true;
+    state = STATE.RESOLVE;
+    save.coins += 10; sessionScore += 10; droppedStreak = 0;
+    toast(Math.random() < 0.5 ? 'GOAL! 🏉 +10 to Gryffindor!' : 'GOAAAL! 🏉 +10', '#ffd23d');
+    spawnParticles(disc.x, disc.y, '#ffd23d', 22, 9);
+    shake = 5;
+    persist(); updateHUD();
+    setTimeout(newThrow, 1300);
   }
 
   function tryCatch() {
@@ -341,7 +370,7 @@
     // how close to the sweet-spot ring did it come down?
     const missToRing = Math.abs(disc.x - ring.x);
     const perfectR = ring.r * it.window;
-    const goodR = perfectR + 110;
+    const goodR = perfectR + 60;
 
     let quality;
     if (missToRing <= perfectR) quality = 'perfect';
@@ -381,6 +410,7 @@
 
   function finishCatch(quality) {
     const it = equippedItem();
+    droppedStreak = 0;   // they held onto it — Woofa calms down
     // scoring
     let base = quality === 'perfect' ? 50 : 20;
     streak = quality === 'perfect' ? streak + 1 : Math.max(1, Math.floor(streak / 2) + 1);
@@ -484,13 +514,25 @@
     state = STATE.RESOLVE;
     streak = 0;
     if (save.equipped === 'rocket') { consumeRocket(); toast('The rocket flew wide! 🚀💨', '#93a2c4'); updateHUD(); setTimeout(newThrow, 1200); return; }
-    const faceplant = dog.state === 'fall';
-    if (!faceplant) { dog.state = 'idle'; dog.mouthOpen = 0; }
-    const cries = ['Owwww my bones! 😭', 'Waaahh! 😭', 'My leg! 😭', "That's not fair! 😭"];
-    if (faceplant) toast(cries[(Math.random() * cries.length) | 0], '#ff8a3d');
-    else toast('Missed! 🐾', '#93a2c4');
+    droppedStreak++;
+    // the more they keep dropping it, the hungrier Woofa gets — sometimes he eats them
+    const eatChance = Math.min(0.18 + droppedStreak * 0.12, 0.72);
+    if (Math.random() < eatChance) startEat();
+    else startTantrum();
     updateHUD();
-    setTimeout(newThrow, faceplant ? 1600 : 1100);
+  }
+
+  function startTantrum() {
+    dog.state = 'tantrum'; dog.stateT = 0; dog.onGround = true;
+    dog.speech = TANTRUM_LINES[(Math.random() * TANTRUM_LINES.length) | 0];
+    shake = 6;
+    setTimeout(newThrow, 2300);
+  }
+  function startEat() {
+    dog.state = 'eaten'; dog.stateT = 0;
+    dog.speech = "no — NO! AAA—";
+    woofaEat.active = true; woofaEat.x = thrower.x; woofaEat.phase = 'run'; woofaEat.chompT = 0;
+    setTimeout(newThrow, 2700);
   }
 
   function resolveOvershoot() {
@@ -528,6 +570,8 @@
     dog.jumping = false;
     dog.onGround = true;
     dog.vy = 0;
+    dog.speech = null;
+    woofaEat.active = false;
     resetDisc();
     state = STATE.AIM;
     showAimHint();
@@ -567,6 +611,18 @@
           shake = 7;
         }
       }
+    } else if (dog.state === 'tantrum') {
+      dog.stateT += dt;
+      // periodic frisbee-smash thump
+      if (Math.floor(dog.stateT) % 24 < dt) { shake = Math.max(shake, 3); spawnParticles(dog.x, groundY() - 4, sceneFor(level).accent, 5, 5); }
+    } else if (dog.state === 'eaten') {
+      dog.stateT += dt;
+      if (woofaEat.active) {
+        if (woofaEat.phase === 'run') {
+          woofaEat.x = lerp(woofaEat.x, dog.x - 16, 0.11 * dt);
+          if (Math.abs(woofaEat.x - dog.x) < 26) { woofaEat.phase = 'chomp'; woofaEat.chompT = 0; spawnGibs(dog.x, groundY() - 40, kids[activeKid]); shake = 12; }
+        } else { woofaEat.chompT += dt; }
+      }
     } else if (dog.state === 'catchpose' || dog.state === 'rip' || dog.state === 'celebrate') {
       dog.stateT += dt;
     }
@@ -598,14 +654,22 @@
 
   // ---------- Rendering ----------
   function render() {
+    const punchIn = dog.state === 'tantrum' || dog.state === 'eaten' || dog.state === 'boom';
+    const pivotX = punchIn ? clamp(dog.x - camX, W * 0.2, W * 0.8) : W / 2;
+    const pivotY = groundY();
     ctx.save();
     if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
+    // zoom the whole frame around a point on the ground — the ground line stays put
+    ctx.translate(pivotX, pivotY);
+    ctx.scale(camZoom, camZoom);
+    ctx.translate(-pivotX, -pivotY);
 
     drawScene();
 
     // world-space objects
     ctx.save();
     ctx.translate(-camX, 0);
+    drawGoals();
     drawRing();
     drawWoofa();
     drawCatchers();
@@ -613,10 +677,10 @@
     drawParticles();
     ctx.restore();
 
+    ctx.restore(); // end zoom (+ shake)
+
     if (state === STATE.AIM && aim.active) drawAimUI();
     drawWindIndicator();
-
-    ctx.restore();
   }
 
   // Wind gauge near the top — green = tailwind (carries it), orange = headwind (fights you)
@@ -672,6 +736,14 @@
       ctx.lineTo(x + 22, gy + 18);
       ctx.stroke();
     }
+    // footy ground markings (scroll with the camera)
+    if (sc.footy) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(0, gy + 10); ctx.lineTo(W, gy + 10); ctx.stroke(); // boundary
+      const cxm = worldWidth / 2 - camX;
+      ctx.beginPath(); ctx.moveTo(cxm, gy); ctx.lineTo(cxm, H); ctx.stroke();        // centre line
+      ctx.beginPath(); ctx.arc(cxm, gy + (H - gy) * 0.5, 42, 0, 7); ctx.stroke();    // centre circle
+    }
   }
 
   function drawClouds(par, gy) {
@@ -712,6 +784,19 @@
       }
     }
     ctx.fillStyle = 'rgba(20,28,48,0.55)';
+  }
+
+  // Footy goals out past the kids — sail one through the middle sticks for points.
+  function drawGoals() {
+    if (state === STATE.MENU) return;
+    const gy = groundY();
+    const top = gy - 200;
+    ctx.strokeStyle = '#f3f1ea'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    const posts = [[goalX - 28, gy - 150], [goalX - 9, top], [goalX + 9, top], [goalX + 28, gy - 150]];
+    for (const p of posts) { ctx.beginPath(); ctx.moveTo(p[0], gy); ctx.lineTo(p[0], p[1]); ctx.stroke(); }
+    const grad = ctx.createLinearGradient(0, top, 0, gy);
+    grad.addColorStop(0, 'rgba(255,210,61,0)'); grad.addColorStop(1, 'rgba(255,210,61,0.12)');
+    ctx.fillStyle = grad; ctx.fillRect(goalX - 9, top, 18, gy - top);
   }
 
   function drawRing() {
@@ -1004,8 +1089,14 @@
       cheer: s === 'catchpose' || s === 'leap',
     }, idleK);
 
-    // active kid — the runner (gone in a puff if the rocket got them)
-    if (s !== 'boom') drawKid(dog.x, dog.y, dog.facing, {
+    // Woofa charging in on all fours to eat them
+    if (s === 'eaten' && woofaEat.active) {
+      paintDog(woofaEat.x, gy, 1, { run: performance.now() / 80, chasing: true, mouthOpen: woofaEat.phase === 'chomp' ? 1 : 0.6, wag: 0, cape: false });
+    }
+
+    // active kid — the runner (gone if the rocket got them, or Woofa ate them)
+    const chomped = s === 'eaten' && woofaEat.phase === 'chomp';
+    if (s !== 'boom' && !chomped) drawKid(dog.x, dog.y, dog.facing, {
       run: dog.run,
       reaching: (s === 'chase' || s === 'leap'),
       leaping: s === 'leap',
@@ -1013,9 +1104,35 @@
       falling: s === 'fall',
       fallT: dog.stateT,
       crying: s === 'fall' && dog.onGround,
+      tantrum: s === 'tantrum',
+      scared: s === 'eaten',
       cheer: s === 'catchpose',
       cape: isCapeOn(),
     }, activeK);
+
+    // speech bubble while they sook / panic
+    if ((s === 'tantrum' || (s === 'eaten' && !chomped)) && dog.speech) {
+      drawSpeechBubble(dog.x, dog.y - 82, dog.speech);
+    }
+  }
+
+  function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function drawSpeechBubble(x, y, text) {
+    ctx.save();
+    ctx.font = '800 14px system-ui, sans-serif';
+    const w = Math.max(70, ctx.measureText(text).width + 22), h = 30;
+    const bx = x - w / 2, by = y - h;
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#241a12'; ctx.lineWidth = 2.5;
+    roundRectPath(bx, by, w, h, 9); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 7, by + h - 1); ctx.lineTo(x + 2, by + h + 11); ctx.lineTo(x + 8, by + h - 1); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#241a12'; ctx.stroke();
+    ctx.fillStyle = '#241a12'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, by + h / 2);
+    ctx.restore();
   }
 
   const KID_OUT = '#241a12';
@@ -1041,7 +1158,8 @@
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
     // whole-body pose transform
-    if (pose.crying) { ctx.translate(4, -4); ctx.rotate(1.32); }
+    if (pose.tantrum) { ctx.translate(0, 10); ctx.rotate(Math.sin(now / 70) * 0.14); }   // sat down, rocking + bawling
+    else if (pose.crying) { ctx.translate(4, -4); ctx.rotate(1.32); }
     else if (pose.falling) { ctx.translate(0, -3); ctx.rotate(clamp((pose.fallT || 0) * 0.13, 0, 1.3)); }
     else if (pose.leaping) { ctx.rotate(-0.13); }
     else if (pose.reaching) { ctx.translate(0, Math.abs(Math.sin(run)) * -2); ctx.rotate(0.05); }
@@ -1079,6 +1197,8 @@
     }
     // arm/leg endpoints by pose
     function armHand(dir) {
+      if (pose.tantrum) return [dir * (torsoW * 0.5 + 10), shoulderY - 12 - Math.abs(Math.sin(now / 55)) * 11]; // flailing fists
+      if (pose.scared) return [dir * (torsoW * 0.5 + 8), shoulderY - 8]; // hands up in panic
       if (pose.holding) return [dir * 5, headCy - 22];
       if (pose.leaping || pose.reaching || pose.cheer) return [dir * (torsoW * 0.16) + dir * 4, headCy - 12];
       if (pose.falling) return [dir * (torsoW * 0.55 + 12), shoulderY - 5];
@@ -1093,6 +1213,7 @@
     }
     function legTargets(side) { // side -1 back, +1 front
       const s1 = Math.sin(run + (side > 0 ? 0 : Math.PI));
+      if (pose.tantrum) return { knee: [side * 11, hipY + 1], foot: [side * 25, hipY + 3] };   // sat, legs out front
       if (pose.leaping || pose.holding) return { knee: [side * 5, hipY + 12], foot: [side * 9, hipY + 26] };
       if (pose.falling || pose.crying) return { knee: [side * 9, hipY - 3], foot: [side * 19, hipY - 13] };
       if (pose.reaching) return { knee: [s1 * 7, hipY + 15], foot: [s1 * 15, 0] };
@@ -1178,7 +1299,7 @@
     })();
 
     // ---- face (facing side = +x) ----
-    if (pose.crying) {
+    if (pose.crying || pose.tantrum) {
       ctx.strokeStyle = OUT; ctx.lineWidth = 2;
       // squeezed ^ eyes
       ctx.beginPath(); ctx.moveTo(headR * 0.1, headCy - 1); ctx.quadraticCurveTo(headR * 0.32, headCy - 4, headR * 0.55, headCy - 1); ctx.stroke();
@@ -1194,7 +1315,8 @@
         ctx.lineTo(ex + 1, headCy + 1 + tl); ctx.quadraticCurveTo(ex, headCy + 3 + tl, ex - 1, headCy + 1 + tl); ctx.closePath(); ctx.fill();
       });
     } else {
-      const wide = pose.falling ? 1.35 : 1;
+      const shocked = pose.falling || pose.scared;
+      const wide = shocked ? 1.4 : 1;
       const ex = headR * 0.34, ey = headCy - 1, er = 3 * wide;
       // two forward-facing eye whites
       ctx.fillStyle = '#fff';
@@ -1204,7 +1326,7 @@
       ctx.beginPath(); ctx.ellipse(-ex, ey, er, er * 1.15, 0, 0, 7); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(ex, ey, er, er * 1.15, 0, 0, 7); ctx.stroke();
       // pupils (glance toward the facing side)
-      const px = pose.falling ? 0 : er * 0.42;
+      const px = shocked ? 0 : er * 0.42;
       ctx.fillStyle = '#20140c';
       ctx.beginPath(); ctx.arc(-ex + px, ey, er * 0.55, 0, 7); ctx.fill();
       ctx.beginPath(); ctx.arc(ex + px, ey, er * 0.55, 0, 7); ctx.fill();
@@ -1213,7 +1335,7 @@
       ctx.beginPath(); ctx.arc(ex + px + 0.8, ey - 0.9, 0.7, 0, 7); ctx.fill();
       // brows
       ctx.strokeStyle = OUT; ctx.lineWidth = 1.4;
-      const bw = pose.falling ? -3 : 0;
+      const bw = shocked ? -3 : 0;
       ctx.beginPath();
       ctx.moveTo(-ex - 3, ey - er - 2 + bw); ctx.lineTo(-ex + 3, ey - er - 3 + bw);
       ctx.moveTo(ex - 3, ey - er - 3 + bw); ctx.lineTo(ex + 3, ey - er - 2 + bw);
@@ -1223,7 +1345,7 @@
       ctx.beginPath(); ctx.ellipse(headR * 0.06, headCy + 4, 1.7, 1.3, 0, 0, 7); ctx.fill();
       // mouth
       ctx.strokeStyle = OUT; ctx.lineWidth = 1.7; ctx.lineCap = 'round';
-      if (pose.falling) { blob(0, headCy + 7.5, 2.8, 3.2, '#8a3140'); }
+      if (shocked) { blob(0, headCy + 7.5, 2.8, 3.4, '#8a3140'); }
       else if (k.cheeky) {
         ctx.beginPath(); ctx.arc(0, headCy + 4, 5, 0.1, Math.PI - 0.1); ctx.stroke();
         ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, headCy + 4.6, 3.4, 0.35, Math.PI - 0.35); ctx.fill();
