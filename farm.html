@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Ewe Beauty Farming Co</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="farmHud" class="hud">
+    <div class="hud-pill" id="fMoney">💰 0</div>
+    <div class="hud-pill" id="fWool">🧺 0</div>
+    <div class="hud-pill" id="fSheep">🐑 0</div>
+    <div class="hud-pill" id="fLevel">Lv 1</div>
+  </div>
+
+  <!-- resource bars for the troughs -->
+  <div id="troughBars" class="trough-bars">
+    <div class="tb"><span>🌾</span><div class="tb-track"><div id="feedBar" class="tb-fill feed"></div></div></div>
+    <div class="tb"><span>💧</span><div class="tb-track"><div id="waterBar" class="tb-fill water"></div></div></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- bottom action bar -->
+  <div id="farmBar" class="farm-bar">
+    <button class="fbtn" id="btnFeed"><span class="fb-emoji">🌾</span><span class="fb-lbl">Feed</span><span class="fb-cost" id="feedCost">$8</span></button>
+    <button class="fbtn" id="btnWater"><span class="fb-emoji">💧</span><span class="fb-lbl">Water</span><span class="fb-cost" id="waterCost">$3</span></button>
+    <button class="fbtn" id="btnSell"><span class="fb-emoji">🧺</span><span class="fb-lbl">Sell wool</span><span class="fb-cost" id="sellVal">$0</span></button>
+    <button class="fbtn" id="btnShop"><span class="fb-emoji">🛒</span><span class="fb-lbl">Shop</span></button>
+  </div>
+
+  <!-- start / intro -->
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo">
+        <span class="logo-throw" style="animation:none">🐑</span>
+        <h1>EWE BEAUTY<span>FARMING Co</span></h1>
+      </div>
+      <p class="snake-help">
+        Raise your flock with Woofa. <b>Feed</b> and <b>water</b> your sheep so their wool grows.<br>
+        When a sheep's fluffy and ready (✂️), <b>tap it to shear</b> — then <b>sell the wool</b> for coin.<br>
+        Spend it in the <b>shop</b>: more sheep, bigger paddocks, upgrades, and new dogs (Winnie &amp; Tia).<br>
+        Your farm keeps growing wool even while you're away. Build it up! 🚜
+      </p>
+      <button class="btn btn-primary" id="farmPlay">START FARMING</button>
+    </div>
+  </div>
+
+  <!-- shop -->
+  <div id="shopScreen" class="overlay hidden">
+    <div class="panel panel-wide">
+      <div class="shop-head">
+        <h2>Farm Shop</h2>
+        <div class="shop-coins">💰 <span id="shopMoney">0</span></div>
+      </div>
+      <div id="shopList" class="shop-list"></div>
+      <button class="btn btn-primary" id="shopClose">Back to the farm</button>
+    </div>
+  </div>
+
+  <script src="farm.js"></script>
+</body>
+</html>
