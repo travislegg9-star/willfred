@@ -38,10 +38,12 @@ html, body {
   right: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   z-index: 20;
   pointer-events: none;
+  padding-left: 62px;   /* clear the ‹ Games button top-left */
 }
+.hud-pill { padding: 7px 11px; font-size: 13.5px; }
 .hud-pill {
   background: rgba(11, 18, 32, 0.72);
   backdrop-filter: blur(8px);

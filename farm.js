@@ -64,7 +64,19 @@
   }
 
   // ---------- 2.5D depth ----------
-  function dscale(y) { return 0.72 + 0.5 * clamp((y - paddock.y) / paddock.h, 0, 1); }
+  function dscale(y) { return 0.58 + 0.64 * clamp((y - paddock.y) / paddock.h, 0, 1); }
+
+  // angled paddock — the far (top) edge is pulled in → a trapezoid "layout" view.
+  const INSET = 0.17; // fraction of width the far edge is inset on EACH side
+  function fieldBounds(y) {
+    const ty = clamp((y - paddock.y) / paddock.h, 0, 1), inset = paddock.w * INSET * (1 - ty);
+    return { left: paddock.x + inset + 16, right: paddock.x + paddock.w - inset - 16 };
+  }
+
+  // flashing on-screen prompts (FOX! / feed your sheep! / water! / dying!)
+  const alerts = [];
+  let alertTimer = 0;
+  function flashAlert(msg, col, big) { const ex = alerts.find(a => a.msg === msg); if (ex) { ex.t = 1; return; } alerts.push({ msg, col: col || '#ff5a5a', t: 1, big: !!big }); if (alerts.length > 3) alerts.shift(); }
 
   // ---------- factories ----------
   function makeSheep(o = {}) {
@@ -190,9 +202,9 @@
       else if (!fleeing && s.moveT <= 0) { s.tx = rand(paddock.x + 30, paddock.x + paddock.w - 30); s.ty = rand(paddock.y + 30, paddock.y + paddock.h - 40); s.moveT = rand(40, 120); }
       const spd = fleeing ? 2.7 : (s.role === 'lamb' ? 1 : 0.7);
       const a = Math.atan2(s.ty - s.y, s.tx - s.x);
-      if (dist(s.x, s.y, s.tx, s.ty) > 4) { s.x = clamp(s.x + Math.cos(a) * spd * dt, paddock.x + 20, paddock.x + paddock.w - 20); s.y = clamp(s.y + Math.sin(a) * spd * dt, paddock.y + 24, paddock.y + paddock.h - 24); }
+      if (dist(s.x, s.y, s.tx, s.ty) > 4) { s.y = clamp(s.y + Math.sin(a) * spd * dt, paddock.y + 24, paddock.y + paddock.h - 24); const b = fieldBounds(s.y); s.x = clamp(s.x + Math.cos(a) * spd * dt, b.left, b.right); }
       repelFromPens(s, 13); // fences block sheep (gate lets them through)
-      s.x = clamp(s.x, paddock.x + 20, paddock.x + paddock.w - 20); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24);
+      { const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); }
 
       if (F.feed > 0 && s.hunger > 12 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 44) { s.hunger = clamp(s.hunger - 0.3 * dt, 0, 100); F.feed = clamp(F.feed - 0.02 * dt, 0, 100); }
       if (F.water > 0 && s.thirst > 12 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 44) { s.thirst = clamp(s.thirst - 0.3 * dt, 0, 100); F.water = clamp(F.water - 0.015 * dt, 0, 100); }
@@ -213,9 +225,9 @@
     if (foxTimer <= 0 && sheep.length > 0 && foxes.length < 3) {
       foxTimer = rand(1400, 2600) / (1 + (F.farmLevel - 1) * 0.35);
       const spawnFoxAt = (left) => foxes.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false });
-      const left = Math.random() < 0.5; spawnFoxAt(left);
+      const left = Math.random() < 0.5; spawnFoxAt(left); flashAlert('🦊 FOX!', '#ff6a3a');
       // every now and then, a DOUBLE raid from both sides — one dog can't cover both (get two dogs!)
-      if (Math.random() < 0.14 + (F.farmLevel - 1) * 0.03 && foxes.length < 3) { spawnFoxAt(!left); toast('🦊🦊 Double fox raid — both sides at once!'); }
+      if (Math.random() < 0.14 + (F.farmLevel - 1) * 0.03 && foxes.length < 3) { spawnFoxAt(!left); flashAlert('🦊🦊 DOUBLE FOX RAID!', '#ff4d4d', true); toast('🦊🦊 Double fox raid — both sides at once!'); }
     }
     for (let i = foxes.length - 1; i >= 0; i--) {
       const fx = foxes[i]; let chased = false;
@@ -252,6 +264,15 @@
     }
 
     for (let i = fluff.length - 1; i >= 0; i--) { const p = fluff[i]; p.vy += 0.15 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.02 * dt; if (p.life <= 0) fluff.splice(i, 1); }
+    for (let i = alerts.length - 1; i >= 0; i--) { alerts[i].t -= 0.006 * dt; if (alerts[i].t <= 0) alerts.splice(i, 1); }
+    alertTimer -= dt;
+    if (alertTimer <= 0) {
+      alertTimer = 160;
+      if (sheep.some(s => s.starve > 60)) flashAlert('⚠️ YOUR SHEEP ARE DYING!', '#ff4d4d', true);
+      else if (F.feed < 18 && sheep.some(s => s.hunger > 60)) flashAlert('🌾 Feed your sheep!', '#ffb03a');
+      else if (F.water < 18 && sheep.some(s => s.thirst > 60)) flashAlert('💧 Your sheep need water!', '#4cc9ff');
+      if (F.wool > 30) flashAlert('🧺 Sell your wool for coin!', '#58e08a');
+    }
     if ((tick | 0) % 30 === 0) { updateHud(); persist(); }
   }
 
@@ -266,12 +287,16 @@
     ctx.fillStyle = '#5c9c4e'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 80) ctx.lineTo(x, paddock.y - 8 - Math.cos(x / 90) * 10); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
     ctx.globalAlpha = 0.9; ctx.font = '18px system-ui'; ctx.fillText('☁️', W * 0.2, 40); ctx.fillText('☁️', W * 0.7, 62); ctx.globalAlpha = 1;
 
-    // ground: dirt border + grass with a far→near gradient for depth
-    ctx.fillStyle = '#5a3f24'; ctx.fillRect(paddock.x - 9, paddock.y - 9, paddock.w + 18, paddock.h + 18);
-    const g = ctx.createLinearGradient(0, paddock.y, 0, paddock.y + paddock.h); g.addColorStop(0, '#3f8a42'); g.addColorStop(1, '#57ab4d');
-    ctx.fillStyle = g; ctx.fillRect(paddock.x, paddock.y, paddock.w, paddock.h);
-    ctx.fillStyle = 'rgba(255,255,255,0.045)'; for (let i = 0; i < 12; i++) { const yy = paddock.y + (i / 12) * paddock.h; ctx.fillRect(paddock.x, yy, paddock.w, 2 + i * 0.5); }
-    drawFence(paddock.x, paddock.y, paddock.w, paddock.h, true);
+    // ground: an angled (trapezoid) paddock — far edge inset for a 2.5D layout look
+    const far = fieldBounds(paddock.y), near = fieldBounds(paddock.y + paddock.h);
+    const fL = far.left, fR = far.right, nL = near.left, nR = near.right, ty0 = paddock.y, ty1 = paddock.y + paddock.h;
+    ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.moveTo(fL - 12, ty0 - 9); ctx.lineTo(fR + 12, ty0 - 9); ctx.lineTo(nR + 12, ty1 + 10); ctx.lineTo(nL - 12, ty1 + 10); ctx.closePath(); ctx.fill();
+    const g = ctx.createLinearGradient(0, ty0, 0, ty1); g.addColorStop(0, '#3a8340'); g.addColorStop(1, '#59ad4f');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(fL, ty0); ctx.lineTo(fR, ty0); ctx.lineTo(nR, ty1); ctx.lineTo(nL, ty1); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    for (let i = 1; i < 10; i++) { const t = i / 10, yy = ty0 + t * (ty1 - ty0), lx = fL + t * (nL - fL), rx = fR + t * (nR - fR); ctx.lineWidth = 1 + t * 1.6; ctx.beginPath(); ctx.moveTo(lx, yy); ctx.lineTo(rx, yy); ctx.stroke(); }
+    ctx.strokeStyle = '#caa06a'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(fL, ty0); ctx.lineTo(fR, ty0); ctx.lineTo(nR, ty1); ctx.lineTo(nL, ty1); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = '#b98d55'; for (let i = 0; i <= 8; i++) { const t = i / 8, yy = ty0 + t * (ty1 - ty0), lx = fL + t * (nL - fL), rx = fR + t * (nR - fR); ctx.fillRect(lx - 2, yy - 5, 4, 10); ctx.fillRect(rx - 2, yy - 5, 4, 10); }
     drawGrass();
 
     if (F.power === 'economical') drawWaterWheel();
@@ -288,6 +313,24 @@
     actors.sort((a, b) => a.y - b.y); for (const a of actors) a.d();
 
     for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
+    drawAlerts();
+  }
+
+  // flashing on-screen prompts stacked under the HUD
+  function drawAlerts() {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let yy = 112;
+    for (const al of alerts) {
+      const flash = 0.45 + 0.55 * Math.abs(Math.sin(tick / 6));
+      ctx.globalAlpha = clamp(al.t, 0, 1) * (0.5 + flash * 0.5);
+      const fs = al.big ? 26 : 19;
+      ctx.font = '900 ' + fs + 'px system-ui, sans-serif';
+      const w = ctx.measureText(al.msg).width + 26;
+      ctx.fillStyle = 'rgba(11,18,32,0.7)'; roundRect(W / 2 - w / 2, yy - fs * 0.7, w, fs * 1.4, 10); ctx.fill();
+      ctx.fillStyle = al.col; ctx.fillText(al.msg, W / 2, yy);
+      yy += fs * 1.7;
+    }
+    ctx.globalAlpha = 1;
   }
 
   function shadow(x, y, r) { ctx.globalAlpha = 0.2; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.32, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
