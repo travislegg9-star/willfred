@@ -94,7 +94,7 @@
   const sheep = [], dogs = [], preds = [], fluff = [], grass = [], pops = [], workers = [], motes = [];
   let tractor = null, paddock = {}, feedTrough = {}, waterTrough = {}, shed = {}, house = {};
   let running = false, tick = 0, breedTimer = 1600, predTimer = 1600, alertTimer = 0;
-  let placing = null, drag = null, selectedPen = null, herdGoal = null;
+  let placing = null, drag = null, selectedPen = null, selectedBuilding = null, herdGoal = null;
   let cam = { x: 0, y: 0 }, viewH = 0, panLast = null;   // vertical camera for the scrollable map
 
   function spaceMargins() { const lvl = F ? F.farmLevel : 1; return { top: Math.max(150, 178 - (lvl - 1) * 6), bot: 128, mx: Math.max(6, 18 - (lvl - 1) * 2) }; }
@@ -161,6 +161,8 @@
 
   // ---------- particles ----------
   function spawnFluff(x, y, c) { for (let i = 0; i < 10; i++) fluff.push({ x, y, vx: rand(-2, 2), vy: rand(-3, -0.5), life: 1, r: rand(3, 6), c: c || '#f4f3ee' }); }
+  function dustPuff(x, y) { fluff.push({ x: x + rand(-3, 3), y, vx: rand(-0.6, 0.6), vy: rand(-1.1, -0.3), life: 0.7, r: rand(3, 6), c: 'rgba(190,168,128,0.65)' }); }
+  function splash(x, y) { for (let i = 0; i < 3; i++) fluff.push({ x, y, vx: rand(-1.3, 1.3), vy: rand(-2.3, -0.8), life: 0.55, r: rand(2, 3.4), c: '#9fdcff' }); }
   function pop(x, y, txt, col, big) { pops.push({ x, y, vx: rand(-0.4, 0.4), vy: rand(-2.4, -1.4), life: 1, txt, col: col || '#fff', sz: big ? 22 : 15, spin: 0, rot: 0 }); }   // text pops float straight up (readable)
   function confetti(x, y, emojis) { for (let i = 0; i < 12; i++) pops.push({ x, y, vx: rand(-3, 3), vy: rand(-4.5, -1.5), life: 1, txt: emojis[(Math.random() * emojis.length) | 0], col: '#fff', sz: rand(14, 22), spin: rand(-0.3, 0.3), rot: rand(0, 6) }); }
 
@@ -210,12 +212,17 @@
   const penInside = (p, x, y) => x > p.x - 4 && x < p.x + p.w + 4 && y > p.y - 4 && y < p.y + p.h + 4;
   const penInsideStrict = (p, x, y) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h;
   function insideAnyPen(x, y) { for (const p of F.pens) if (penInsideStrict(p, x, y)) return p; return null; }
-  // a sheep tucked inside a stone pen is safe from any predator that hasn't come through the gate
-  function predShielded(s, fx) { for (const p of F.pens) if (p.stone && penInsideStrict(p, s.x, s.y) && !penInsideStrict(p, fx.x, fx.y)) return true; return false; }
+  // a sheep tucked inside a stone pen is safe: a closed gate is total protection; an open one
+  // only lets a predator that has actually walked inside reach it
+  function predShielded(s, fx) { for (const p of F.pens) { if (!p.stone || !penInside(p, s.x, s.y)) continue; if (!p.gateOpen) return true; if (!penInsideStrict(p, fx.x, fx.y)) return true; } return false; }
   function penCorners(p) { return [{ k: 'nw', x: p.x, y: p.y }, { k: 'ne', x: p.x + p.w, y: p.y }, { k: 'sw', x: p.x, y: p.y + p.h }, { k: 'se', x: p.x + p.w, y: p.y + p.h }]; }
   const penTick = (p) => ({ x: p.x + p.w / 2 - 30, y: p.y - 22 });
   const penScrap = (p) => ({ x: p.x + p.w / 2 + 30, y: p.y - 22 });
   const penStoneBtn = (p) => ({ x: p.x + p.w / 2, y: p.y - 22 });
+  const inBuilding = (b, x, y) => x > b.x && x < b.x + b.w && y > b.y - 14 && y < b.y + b.h;
+  function buildingAt(x, y) { for (let i = F.buildings.length - 1; i >= 0; i--) if (inBuilding(F.buildings[i], x, y)) return F.buildings[i]; return null; }
+  const bScrapBtn = (b) => ({ x: b.x + b.w, y: b.y - 8 });
+  function scrapBuilding(b) { const i = F.buildings.indexOf(b); if (i < 0) return; const bd = BUILD[b.bkind]; F.buildings.splice(i, 1); selectedBuilding = null; F.money += Math.round(bd.coin * 0.5); F.wood += Math.round(bd.wood * 0.5); F.stone += Math.round((bd.stone || 0) * 0.5); toast('🗑️ ' + bd.name + ' scrapped (refund)'); pop(b.x + b.w / 2, b.y, '🗑️', '#ff8a3d'); sfx.pop(); persist(); updateHud(); }
   function flockCentroid() { if (!sheep.length) return { x: paddock.x + paddock.w / 2, y: paddock.y + paddock.h / 2 }; let cx = 0, cy = 0; for (const s of sheep) { cx += s.x; cy += s.y; } return { x: cx / sheep.length, y: cy / sheep.length }; }
   function nearestOpenPen() { const c = flockCentroid(); let best = null, bd = 1e9; for (const p of F.pens) { if (!p.gateOpen) continue; const g = gateCenter(p); const d = dist(c.x, c.y, g.x, g.y); if (d < bd) { bd = d; best = p; } } return best; }
 
@@ -279,20 +286,27 @@
       if (penInside(sp, p.x, p.y)) { drag = { type: 'pen', ref: sp, ox: p.x - sp.x, oy: p.y - sp.y }; return; }
       selectedPen = null; return;
     }
+    if (selectedBuilding) {
+      const b = selectedBuilding, sb = bScrapBtn(b);
+      if (dist(p.x, p.y, sb.x, sb.y) < 15) { scrapBuilding(b); return; }
+      if (inBuilding(b, p.x, p.y)) { drag = { type: 'building', ref: b, ox: p.x - b.x, oy: p.y - b.y }; return; }
+      selectedBuilding = null; return;
+    }
 
     for (const w of workers) { const s = dscale(w.y); if (dist(p.x, p.y, w.x, w.y - 8) < 16 * s) { w.job = JOBS[(JOBS.indexOf(w.job) + 1) % JOBS.length]; syncWorkerJobs(); toast(WORKER[w.job].emoji + ' Now a ' + WORKER[w.job].name); sfx.pop(); persist(); return; } }
 
     for (const t of [feedTrough, waterTrough]) { const s = dscale(t.y); if (dist(p.x, p.y, t.x, t.y) < 24 * s) { drag = { type: 'trough', ref: t, ox: p.x - t.x, oy: p.y - t.y }; return; } }
-    for (const pen of F.pens) if (penInside(pen, p.x, p.y)) { selectedPen = pen; toast('Editing pen — resize corners · 🧱 stone · ✓ keep · ✕ scrap'); sfx.pop(); return; }
+    const bh = buildingAt(p.x, p.y); if (bh) { selectedBuilding = bh; selectedPen = null; toast('Drag to move · ✕ to scrap'); sfx.pop(); return; }
+    for (const pen of F.pens) if (penInside(pen, p.x, p.y)) { selectedPen = pen; selectedBuilding = null; toast('Editing pen — resize corners · 🧱 stone · ✓ keep · ✕ scrap'); sfx.pop(); return; }
 
-    herdGoal = null; herdTo(p.x, p.y);
+    selectedBuilding = null; herdGoal = null; herdTo(p.x, p.y);
   }
   function syncWorkerJobs() { F.workers = workers.map(w => ({ job: w.job, level: w.level || 1, xp: w.xp || 0 })); }
   function onMove(e) {
     const p = pt(e);
     if (placing) { placing.x = clamp(p.x - placing.w / 2, paddock.x + 4, paddock.x + paddock.w - placing.w - 4); placing.y = clamp(p.y - placing.h / 2, paddock.y + 4, paddock.y + paddock.h - placing.h - 4); return; }
     if (!drag) return;
-    if (drag.type === 'pen') { drag.ref.x = clamp(p.x - drag.ox, paddock.x + 4, paddock.x + paddock.w - drag.ref.w - 4); drag.ref.y = clamp(p.y - drag.oy, paddock.y + 4, paddock.y + paddock.h - drag.ref.h - 4); }
+    if (drag.type === 'pen' || drag.type === 'building') { drag.ref.x = clamp(p.x - drag.ox, paddock.x + 4, paddock.x + paddock.w - drag.ref.w - 4); drag.ref.y = clamp(p.y - drag.oy, paddock.y + 4, paddock.y + paddock.h - drag.ref.h - 4); }
     else if (drag.type === 'resize') {
       const r = drag.ref, mnx = paddock.x + 4, mny = paddock.y + 4, mxx = paddock.x + paddock.w - 4, mxy = paddock.y + paddock.h - 4;
       const mx = clamp(p.x, mnx, mxx), my = clamp(p.y, mny, mxy);
@@ -423,7 +437,7 @@
       { const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); }
 
       if (F.feed > 0 && s.hunger > 8 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 40) { s.hunger = clamp(s.hunger - 0.32 * dt, 0, 100); F.feed = clamp(F.feed - 0.05 * dt, 0, 100); if (s.hunger < 20 && s.heartT <= 0) s.heartT = 24; }
-      if (F.water > 0 && s.thirst > 8 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 40) { s.thirst = clamp(s.thirst - 0.32 * dt, 0, 100); F.water = clamp(F.water - 0.045 * dt, 0, 100); if (s.thirst < 20 && s.heartT <= 0) s.heartT = 24; }
+      if (F.water > 0 && s.thirst > 8 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 40) { s.thirst = clamp(s.thirst - 0.32 * dt, 0, 100); F.water = clamp(F.water - 0.045 * dt, 0, 100); if (s.thirst < 20 && s.heartT <= 0) s.heartT = 24; if (Math.random() < 0.025 * dt) splash(waterTrough.x + rand(-8, 8), waterTrough.y - 3); }
       for (const gr of grass) if (gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 14) { s.hunger = clamp(s.hunger - 0.03 * dt, 0, 100); gr.amt = clamp(gr.amt - 0.03 * dt, 0, 1); break; }
       for (const pl of F.plants) if (pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 18) { s.hunger = clamp(s.hunger - 0.05 * dt, 0, 100); pl.amt = clamp(pl.amt - 0.02 * dt, 0, 1); break; }
     }
@@ -477,9 +491,9 @@
       else if (sheep.length) { let stray = null, sd = -1; for (const s of sheep) { const dd = dist(s.x, s.y, cx, cy); if (dd > sd) { sd = dd; stray = s; } } if (stray && sd > 52) { const a = Math.atan2(stray.y - cy, stray.x - cx); d.tx = stray.x + Math.cos(a) * 40; d.ty = stray.y + Math.sin(a) * 40; } else { d.orbit += 0.03 * dt; d.tx = cx + Math.cos(d.orbit) * 80; d.ty = cy + Math.sin(d.orbit) * 80; } }
       else if (d.moveT <= 0) { d.tx = rand(paddock.x + 40, paddock.x + paddock.w - 40); d.ty = rand(paddock.y + 30, paddock.y + paddock.h - 30); d.moveT = rand(60, 160); }
       const sp = chasing ? 3.7 : 1.6, a = Math.atan2(d.ty - d.y, d.tx - d.x);
-      if (dist(d.x, d.y, d.tx, d.ty) > 5) { d.x += Math.cos(a) * sp * dt; d.y += Math.sin(a) * sp * dt; d.facing = Math.cos(a) >= 0 ? 1 : -1; }
+      if (dist(d.x, d.y, d.tx, d.ty) > 5) { d.x += Math.cos(a) * sp * dt; d.y += Math.sin(a) * sp * dt; d.facing = Math.cos(a) >= 0 ? 1 : -1; if (chasing && (tick | 0) % 5 === 0) dustPuff(d.x, d.y + 9); }
     }
-    if (tractor) { if (tractor.zoom > 0) tractor.zoom -= 0.006 * dt; if (tractor.tx || tractor.ty) { const a = Math.atan2(tractor.ty - tractor.y, tractor.tx - tractor.x); if (dist(tractor.x, tractor.y, tractor.tx, tractor.ty) > 6) { tractor.x = clamp(tractor.x + Math.cos(a) * 2.2 * dt, paddock.x + 16, paddock.x + paddock.w - 16); tractor.y = clamp(tractor.y + Math.sin(a) * 2.2 * dt, paddock.y + 16, paddock.y + paddock.h - 16); tractor.facing = Math.cos(a) >= 0 ? 1 : -1; } } }
+    if (tractor) { if (tractor.zoom > 0) tractor.zoom -= 0.006 * dt; if (tractor.tx || tractor.ty) { const a = Math.atan2(tractor.ty - tractor.y, tractor.tx - tractor.x); if (dist(tractor.x, tractor.y, tractor.tx, tractor.ty) > 6) { tractor.x = clamp(tractor.x + Math.cos(a) * 2.2 * dt, paddock.x + 16, paddock.x + paddock.w - 16); tractor.y = clamp(tractor.y + Math.sin(a) * 2.2 * dt, paddock.y + 16, paddock.y + paddock.h - 16); tractor.facing = Math.cos(a) >= 0 ? 1 : -1; if ((tick | 0) % 6 === 0) dustPuff(tractor.x - 8 * tractor.facing, tractor.y + 11); } } }
 
     for (const m of motes) { m.x += (m.vx + Math.sin(tick / 40 + m.ph) * 0.12) * dt; m.y += m.vy * dt; if (m.y < paddock.y + 10) m.y = paddock.y + paddock.h - 12; const b = fieldBounds(m.y); if (m.x < b.left) m.x = b.right; else if (m.x > b.right) m.x = b.left; }
     for (let i = fluff.length - 1; i >= 0; i--) { const p = fluff[i]; p.vy += 0.15 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.02 * dt; if (p.life <= 0) fluff.splice(i, 1); }
@@ -546,6 +560,9 @@
     const sky = ctx.createLinearGradient(0, 0, 0, paddock.y + 20); sky.addColorStop(0, '#6fbdf5'); sky.addColorStop(0.55, '#a4d8fb'); sky.addColorStop(1, '#e9f6ff');
     ctx.fillStyle = sky; ctx.fillRect(0, 0, W, paddock.y);
     if (dayL > 0.15) { const sx = W * 0.16, sy = paddock.y * 0.3, r = 16; ctx.save(); ctx.globalAlpha = dayL; const gl = ctx.createRadialGradient(sx, sy, 3, sx, sy, 70); gl.addColorStop(0, 'rgba(255,244,190,0.85)'); gl.addColorStop(1, 'rgba(255,244,190,0)'); ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(sx, sy, 70, 0, 7); ctx.fill(); ctx.fillStyle = '#fff2c0'; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fffbe6'; ctx.beginPath(); ctx.arc(sx - 4, sy - 4, r * 0.6, 0, 7); ctx.fill(); ctx.restore(); }
+    // distant mountains — layered for depth
+    ctx.fillStyle = '#aebfd0'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 22) ctx.lineTo(x, paddock.y - 30 - Math.abs(Math.sin(x * 0.017 + 1.3)) * 30 - Math.abs(Math.sin(x * 0.006)) * 12); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#93aabf'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 28) ctx.lineTo(x, paddock.y - 20 - Math.abs(Math.sin(x * 0.012 + 3)) * 22); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#6fae5e'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 60) ctx.lineTo(x, paddock.y - 20 - Math.sin(x / 130) * 16); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#5c9c4e'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 80) ctx.lineTo(x, paddock.y - 8 - Math.cos(x / 90) * 10); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
     drawClouds(dayL);
@@ -575,7 +592,7 @@
 
     const actors = [];
     actors.push({ y: house.y + 30, d: () => drawHouse(house) });
-    for (const b of F.buildings) actors.push({ y: b.y + b.h, d: () => drawBuilding(b) });
+    for (const b of F.buildings) actors.push({ y: b.y + b.h, d: () => drawBuilding(b, b === selectedBuilding) });
     for (const s of sheep) actors.push({ y: s.y, d: () => drawSheep(s) });
     for (const fx of preds) actors.push({ y: fx.dead ? -9999 : fx.y, d: () => drawPredator(fx) });
     for (const d of dogs) actors.push({ y: d.y, d: () => drawDog(d) });
@@ -691,10 +708,11 @@
     }
   }
   function drawTrough(t, col, level, ic) { const sc = dscale(t.y); ctx.save(); ctx.translate(t.x, t.y); ctx.scale(sc, sc); ctx.fillStyle = '#7a5a3a'; roundRect(-22, -8, 44, 16, 4); ctx.fill(); const surY = -6 + (12 - level / 100 * 12); ctx.fillStyle = col; roundRect(-19, surY, 38, level / 100 * 12, 3); ctx.fill(); if (level > 5) { ctx.globalAlpha = 0.45; ctx.fillStyle = '#ffffff'; const shx = Math.sin(tick / 14 + t.x * 0.1) * 8; ctx.beginPath(); ctx.ellipse(shx, surY + 1.6, 7, 1.4, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; } ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; roundRect(-22, -8, 44, 16, 4); ctx.stroke(); ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.fillText(ic, 0, -12); ctx.restore(); }
-  function drawGrass() { const snow = F.weather === 'snow'; for (const gr of grass) { if (gr.amt < 0.12) { ctx.fillStyle = snow ? 'rgba(232,238,244,0.5)' : 'rgba(90,63,36,0.35)'; ctx.beginPath(); ctx.ellipse(gr.x, gr.y, 5, 2.5, 0, 0, 7); ctx.fill(); continue; } const sc = dscale(gr.y), n = 3 + Math.round(gr.amt * 3); ctx.strokeStyle = snow ? '#cfe0d6' : gr.amt > 0.5 ? '#6fd06a' : '#8fbf6a'; ctx.lineWidth = 1.6 * sc; ctx.lineCap = 'round'; for (let i = 0; i < n; i++) { const bx = gr.x + (i - n / 2) * 2.4 * sc, sw = Math.sin(tick / 30 + gr.x + i) * 1.5; ctx.beginPath(); ctx.moveTo(bx, gr.y); ctx.lineTo(bx + sw, gr.y - (5 + gr.amt * 5) * sc); ctx.stroke(); } } }
-  function drawBush(b) { const sc = dscale(b.y) * (b.sz || 1), amt = b.amt == null ? 1 : b.amt; ctx.save(); ctx.translate(b.x, b.y); ctx.scale(sc, sc); shadowLocal(0, 6, 16); const green = amt > 0.5 ? '#3f9a45' : '#6a8f4a'; ctx.fillStyle = green; for (const c of [[-8, 0, 9], [0, -3, 11], [9, 0, 9], [0, 3, 8]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } ctx.fillStyle = amt > 0.5 ? '#57b85c' : '#7fa35a'; for (const c of [[-6, -2, 5], [4, -3, 5]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } if (amt > 0.6) { ctx.fillStyle = '#e0556a'; for (const c of [[-4, 1], [6, 2], [1, -4]]) { ctx.beginPath(); ctx.arc(c[0], c[1], 1.6, 0, 7); ctx.fill(); } } ctx.restore(); }
+  function drawGrass() { const snow = F.weather === 'snow'; for (const gr of grass) { if (gr.amt < 0.12) { ctx.fillStyle = snow ? 'rgba(232,238,244,0.5)' : 'rgba(90,63,36,0.35)'; ctx.beginPath(); ctx.ellipse(gr.x, gr.y, 5, 2.5, 0, 0, 7); ctx.fill(); continue; } const sc = dscale(gr.y), n = 3 + Math.round(gr.amt * 3); ctx.strokeStyle = snow ? '#cfe0d6' : gr.amt > 0.5 ? '#6fd06a' : '#8fbf6a'; ctx.lineWidth = 1.6 * sc; ctx.lineCap = 'round'; for (let i = 0; i < n; i++) { const bx = gr.x + (i - n / 2) * 2.4 * sc, sw = (Math.sin(tick / 30 + gr.x + i) + Math.sin(tick / 55 - gr.y * 0.02) * 1.3) * 1.3; ctx.beginPath(); ctx.moveTo(bx, gr.y); ctx.lineTo(bx + sw, gr.y - (5 + gr.amt * 5) * sc); ctx.stroke(); } } }
+  function drawBush(b) { const sc = dscale(b.y) * (b.sz || 1), amt = b.amt == null ? 1 : b.amt; ctx.save(); ctx.translate(b.x, b.y); ctx.scale(sc, sc); ctx.rotate(Math.sin(tick / 48 + b.x * 0.1) * 0.02); shadowLocal(0, 6, 16); const green = amt > 0.5 ? '#3f9a45' : '#6a8f4a'; ctx.fillStyle = green; for (const c of [[-8, 0, 9], [0, -3, 11], [9, 0, 9], [0, 3, 8]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } ctx.fillStyle = amt > 0.5 ? '#57b85c' : '#7fa35a'; for (const c of [[-6, -2, 5], [4, -3, 5]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } if (amt > 0.6) { ctx.fillStyle = '#e0556a'; for (const c of [[-4, 1], [6, 2], [1, -4]]) { ctx.beginPath(); ctx.arc(c[0], c[1], 1.6, 0, 7); ctx.fill(); } } ctx.restore(); }
   function drawTree(t) {
     const wood = t.wood == null ? 100 : t.wood, sc = dscale(t.y) * (t.sz || 1); ctx.save(); ctx.translate(t.x, t.y); ctx.scale(sc, sc); shadowLocal(0, 4, 18);
+    ctx.rotate(Math.sin(tick / 55 + t.x * 0.08) * 0.035);   // gentle breeze sway
     ctx.fillStyle = '#7a5230'; ctx.fillRect(-4, -12, 8, 20);
     if (wood > 20) { ctx.fillStyle = '#2f7a38'; for (const c of [[0, -30, 18], [-12, -22, 13], [12, -22, 13], [0, -18, 15]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } ctx.fillStyle = '#3f9a45'; for (const c of [[-6, -30, 8], [7, -26, 8], [0, -34, 8]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } }
     else { ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.ellipse(0, 8, 7, 3, 0, 0, 7); ctx.fill(); ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-3, -8); ctx.lineTo(-7, -16); ctx.moveTo(3, -8); ctx.lineTo(8, -14); ctx.stroke(); }
@@ -731,9 +749,10 @@
     for (let i = 0; i < lv - 1; i++) { ctx.fillStyle = '#ffd23d'; ctx.font = '9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('★', 2 + i * 8, 6); }
     ctx.restore();
   }
-  function drawBuilding(b) {
+  function drawBuilding(b, sel) {
     const sc = dscale(b.y + b.h), x = b.x, y = b.y, w = b.w, h = b.h;
     shadow(x + w / 2, y + h + 2, w * 0.5);
+    if (sel) { ctx.strokeStyle = '#58e08a'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.strokeRect(x - 3, y - 15, w + 6, h + 17); ctx.setLineDash([]); }
     if (b.bkind === 'market') { ctx.fillStyle = '#caa06a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); for (let i = 0; i < 5; i++) { ctx.fillStyle = i % 2 ? '#e0556a' : '#f4f3ee'; ctx.beginPath(); ctx.moveTo(x + 2 + i * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 1) * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 0.5) * (w - 4) / 5, y + 18); ctx.closePath(); ctx.fill(); } ctx.fillStyle = '#8a6a3a'; ctx.fillRect(x + 4, y + 6, w - 8, 4); ctx.font = (14 * sc + 8) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🧺', x + w / 2, y + h - 4); }
     else if (b.bkind === 'tower') { ctx.fillStyle = '#9a8a6a'; ctx.fillRect(x + 2, y + 14, w - 4, h - 14); ctx.fillStyle = '#7a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 2 + i * (w - 4) / 3, y + 8, (w - 6) / 3, 8); ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x + w / 2 - 3, y + h - 12, 6, 12); ctx.strokeStyle = '#c94a3a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w / 2, y + 8); ctx.lineTo(x + w / 2, y - 6); ctx.stroke(); ctx.fillStyle = '#c94a3a'; ctx.beginPath(); ctx.moveTo(x + w / 2, y - 6); ctx.lineTo(x + w / 2 + 10, y - 3); ctx.lineTo(x + w / 2, y); ctx.closePath(); ctx.fill(); }
     else if (b.bkind === 'bunk') { ctx.fillStyle = '#8a5a3a'; ctx.fillRect(x + 4, y + 14, w - 8, h - 14); ctx.fillStyle = '#6a4028'; ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x + w / 2 - 5, y + h - 14, 10, 14); ctx.fillStyle = '#bfe6ff'; ctx.fillRect(x + 8, y + 20, 7, 7); ctx.fillRect(x + w - 15, y + 20, 7, 7); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🛏️', x + w / 2, y + h - 3); }
@@ -741,6 +760,7 @@
     else if (b.bkind === 'haybarn') { ctx.fillStyle = '#b04a3a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); ctx.fillStyle = '#7a2f28'; ctx.beginPath(); ctx.moveTo(x, y + 18); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 18); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#e0c060'; ctx.fillRect(x + 8, y + h - 12, 10, 10); ctx.fillRect(x + w - 18, y + h - 12, 10, 10); ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🌾', x + w / 2, y + h - 2); }
     else if (b.bkind === 'vet') { ctx.fillStyle = '#f4f3ee'; ctx.fillRect(x + 4, y + 14, w - 8, h - 14); ctx.fillStyle = '#c85a5a'; ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3aa64a'; ctx.fillRect(x + w / 2 - 8, y + 22, 16, 5); ctx.fillRect(x + w / 2 - 2.5, y + 16, 5, 16); ctx.fillStyle = '#5a3a2a'; ctx.fillRect(x + 8, y + h - 12, 9, 12); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🩺', x + w - 12, y + h - 3); }
     if (b.bkind !== 'well') { const ws = ctx.createLinearGradient(0, y + 12, 0, y + h); ws.addColorStop(0, 'rgba(255,255,255,0.10)'); ws.addColorStop(0.4, 'rgba(0,0,0,0)'); ws.addColorStop(1, 'rgba(0,0,0,0.2)'); ctx.fillStyle = ws; ctx.fillRect(x + 3, y + 13, w - 6, h - 13); }   // form shading
+    if (sel) { const sb = bScrapBtn(b); ctx.fillStyle = '#d94a3a'; ctx.beginPath(); ctx.arc(sb.x, sb.y, 13, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 15px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('✕', sb.x, sb.y + 1); ctx.textBaseline = 'alphabetic'; }
   }
   function drawWorker(w) {
     const sc = dscale(w.y), f = w.facing || 1, col = WORKER[w.job].col, bob = Math.abs(Math.sin(w.step / 6)) * 2;
@@ -897,7 +917,7 @@
   function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); if (researchScreen) researchScreen.classList.add('hidden'); const wsn = el('winScreen'); if (wsn) wsn.classList.add('hidden'); }
   function openShop() { if (!F) return; renderShop(); shopScreen.classList.remove('hidden'); }
   function closeShop() { shopScreen.classList.add('hidden'); }
-  function sheepCost(b) { return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
+  function sheepCost(b) { if (b === 'normal' && sheep.length === 0) return 0; return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
   function expandCost() { return Math.round(240 * F.farmLevel); }
   function houseCost() { return Math.round(300 * F.house.level); }
   function workerCost() { return 90 + workers.length * 55; }
@@ -906,7 +926,7 @@
     el('shopMoney').textContent = Math.floor(F.money);
     const list = el('shopList'); list.innerHTML = ''; const rows = [];
     rows.push({ head: '🐑 Livestock' });
-    for (const b of ['normal', 'merino', 'golden', 'black']) { const B = BREEDS[b], locked = F.farmLevel < B.lvl, full = sheep.length >= F.sheepCap, c = sheepCost(b); rows.push({ emoji: b === 'black' ? '🖤' : b === 'golden' ? '⭐' : '🐑', name: 'Buy ' + B.name + ' Sheep', desc: locked ? 'Unlocks at farm Lv ' + B.lvl + '.' : (b === 'black' ? 'Priciest — wool sells for 6.5×.' : 'Wool value ×' + B.mult + '.'), act: locked ? { tag: 'Lv ' + B.lvl } : full ? { tag: 'Full' } : { label: '$' + c, fn: () => buySheep(b), afford: F.money >= c } }); }
+    for (const b of ['normal', 'merino', 'golden', 'black']) { const B = BREEDS[b], locked = F.farmLevel < B.lvl, full = sheep.length >= F.sheepCap, c = sheepCost(b), rescue = b === 'normal' && sheep.length === 0; rows.push({ emoji: b === 'black' ? '🖤' : b === 'golden' ? '⭐' : rescue ? '🐣' : '🐑', name: rescue ? 'Rescue a Stray Lamb' : 'Buy ' + B.name + ' Sheep', desc: rescue ? 'Your flock is empty — take this one free and start again!' : locked ? 'Unlocks at farm Lv ' + B.lvl + '.' : (b === 'black' ? 'Priciest — wool sells for 6.5×.' : 'Wool value ×' + B.mult + '.'), act: locked ? { tag: 'Lv ' + B.lvl } : full ? { tag: 'Full' } : { label: rescue ? 'FREE' : '$' + c, fn: () => buySheep(b), afford: F.money >= c } }); }
     rows.push({ head: '👷 Farmhands (' + workers.length + '/' + workerCap() + ')' });
     const capFull = workers.length >= workerCap(), wc = workerCost();
     for (const j of JOBS) { const info = WORKER[j]; rows.push({ emoji: info.emoji, name: 'Hire ' + info.name, desc: info.desc + (capFull ? ' — cap reached (build a 🛖 Bunkhouse!).' : ''), act: capFull ? { tag: 'Full' } : { label: '$' + wc, fn: () => hireWorker(j), afford: F.money >= wc } }); }
@@ -934,7 +954,7 @@
       if (r.act.fn && r.act.afford) div.querySelector('.si-buy').onclick = () => { r.act.fn(); renderShop(); updateHud(); }; list.appendChild(div);
     }
   }
-  function buySheep(b) { const c = sheepCost(b); if (F.money < c || sheep.length >= F.sheepCap) return; F.money -= c; sheep.push(makeSheep({ breed: b, role: rollRole(), wool: 0 })); toast('🐑 New ' + BREEDS[b].name + '!'); sfx.pop(); persist(); }
+  function buySheep(b) { const c = sheepCost(b); if (sheep.length >= F.sheepCap || (c > 0 && F.money < c)) return; F.money -= c; sheep.push(makeSheep({ breed: b, role: rollRole(), wool: 0 })); toast(c === 0 ? '🐣 Rescued a stray lamb!' : '🐑 New ' + BREEDS[b].name + '!'); sfx.pop(); persist(); updateHud(); }
   function buyExpand() { const c = expandCost(); if (F.money < c || F.farmLevel >= ERAS.length) return; F.money -= c; F.farmLevel++; F.sheepCap += 5; layout(); F.plants.push({ type: 'tree', x: rand(paddock.x + 40, paddock.x + paddock.w - 40), y: paddock.y + rand(24, 46), sz: rand(0.85, 1.1), wood: 100 }); const era = eraName(); toast(era.ic + ' Entered the ' + era.name + '!'); confetti(W / 2, H * 0.4, ['🌱', '🎉', '🐑']); sfx.up(); persist(); }
   function buyEnergy() { const next = ENERGY[F.energy + 1]; if (!next || F.money < next.cost) return; F.money -= next.cost; F.energy++; toast('🔌 Energy upgraded to ' + next.short + '!'); confetti(W / 2, H * 0.4, ['⚡', '🎉', '☀️']); sfx.up(); persist(); }
   function buyDog(k) { const d = DOGS[k]; if (F.money < d.cost || F.dogs[k]) return; F.money -= d.cost; F.dogs[k] = true; rebuildDogs(); toast('🐾 ' + d.name + ' joined the farm!'); confetti(W / 2, H * 0.4, ['🐾', '🎉']); sfx.up(); persist(); }
@@ -968,6 +988,7 @@
       hire: hireWorker, fire() { if (workers.length) { workers.pop(); syncWorkerJobs(); } }, setJob(i, j) { if (workers[i]) { workers[i].job = j; syncWorkerJobs(); } },
       research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
       buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
+      buySheep, scrapBuild(i) { if (F.buildings[i]) scrapBuilding(F.buildings[i]); }, killAllSheep() { sheep.length = 0; updateHud(); },
       penInfo() { return F.pens.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), w: Math.round(p.w), h: Math.round(p.h), gate: p.gateSide, open: p.gateOpen, stone: !!p.stone })); },
       resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, stonePen(i) { if (F.pens[i]) upgradePenStone(F.pens[i]); }, closeGate(i) { if (F.pens[i]) F.pens[i].gateOpen = false; }, setEnergy(n) { F.energy = n; },
       sheepInPen(i) { const p = F.pens[i]; if (!p) return 0; return sheep.filter(s => penInsideStrict(p, s.x, s.y)).length; },
