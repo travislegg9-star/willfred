@@ -356,6 +356,22 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
 @keyframes gaugePulse { 0%,100% { filter: none; } 50% { filter: brightness(1.5) drop-shadow(0 0 6px #ff5a5a); } }
 .g-pct { font-size: 12px; font-weight: 800; min-width: 34px; text-align: right; }
 
+/* save-slot picker */
+.choose-farm { margin-top: 10px; padding: 10px; font-size: 14px; }
+.slot-card {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  width: 100%; text-align: left; margin-top: 10px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: 16px; cursor: pointer;
+  background: rgba(255,255,255,0.04); color: var(--ink);
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+.slot-card:active { transform: scale(0.98); }
+.slot-card.cur { border-color: var(--good); background: rgba(88,224,138,0.08); }
+.slot-name { font-weight: 900; font-size: 17px; }
+.slot-info { color: var(--muted); font-size: 13px; }
+.slot-wipe { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; padding: 6px; border-radius: 10px; }
+.slot-wipe:active { background: rgba(255,90,90,0.2); }
+
 /* goal chip */
 .goal-chip {
   display: flex; align-items: center; gap: 8px;

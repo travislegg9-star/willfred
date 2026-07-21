@@ -28,7 +28,10 @@
   const closestOnSeg = (px, py, x1, y1, x2, y2) => { const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy || 1; let t = ((px - x1) * dx + (py - y1) * dy) / l2; t = clamp(t, 0, 1); return { x: x1 + t * dx, y: y1 + t * dy }; };
 
   // ---------- data ----------
-  const SAVE_KEY = 'ewe_beauty_v1';
+  const SAVE_BASE = 'ewe_beauty_v1', SLOT_KEY = 'ewe_beauty_slot', NSLOTS = 3;
+  let curSlot = 0;
+  function saveKey(slot) { return SAVE_BASE + '_' + (slot == null ? curSlot : slot); }
+  const SAVE_KEY = SAVE_BASE;   // legacy single-save key (migrated into slot 0)
   const FEED_COST = 8, WATER_COST = 3, PEN_COST = 120;
   const ERAS = [{ name: 'Homestead', ic: '🏡' }, { name: 'Smallholding', ic: '🚜' }, { name: 'Estate', ic: '🏘️' }, { name: 'Grand Estate', ic: '🏛️' }, { name: 'Sheep Empire', ic: '👑' }];
   const BREEDS = {
@@ -86,6 +89,7 @@
     dogs: { woofa: true }, upgrades: { tractor: false },
     pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: false }],
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
+    shearGear: 1, records: { woolCrop: 0 },
     dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
   });
   const WIN_MONEY = 20000;   // amass this in the Sheep Empire era to win the Golden Fleece
@@ -96,6 +100,7 @@
   let running = false, tick = 0, breedTimer = 1600, predTimer = 1600, alertTimer = 0;
   let placing = null, drag = null, selectedPen = null, selectedBuilding = null, herdGoal = null;
   let cam = { x: 0, y: 0 }, viewH = 0, panLast = null;   // vertical camera for the scrollable map
+  let shearSession = null;   // the shearing minigame (pauses the farm)
 
   function spaceMargins() { const lvl = F ? F.farmLevel : 1; return { top: Math.max(150, 178 - (lvl - 1) * 6), bot: 128, mx: Math.max(6, 18 - (lvl - 1) * 2) }; }
   function worldScale() { return 1 + ((F ? F.farmLevel : 1) - 1) * 0.15; }   // taller world as the empire grows
@@ -282,8 +287,12 @@
   function nearestOpenPen() { const c = flockCentroid(); let best = null, bd = 1e9; for (const p of F.pens) { if (!p.gateOpen) continue; const g = gateCenter(p); const d = dist(c.x, c.y, g.x, g.y); if (d < bd) { bd = d; best = p; } } return best; }
 
   // ---------- persistence ----------
-  function load() { try { const r = localStorage.getItem(SAVE_KEY); if (!r) return defaultSave(); return Object.assign(defaultSave(), JSON.parse(r)); } catch (e) { return defaultSave(); } }
-  function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age, sick: s.sick })); try { localStorage.setItem(SAVE_KEY, JSON.stringify(F)); } catch (e) {} }
+  function slotRaw(slot) { try { return localStorage.getItem(saveKey(slot)); } catch (e) { return null; } }
+  function slotSummary(slot) { try { const r = slotRaw(slot); if (!r) return null; const d = JSON.parse(r); return { money: Math.floor(d.money || 0), sheep: (d.sheep || []).length, era: d.farmLevel || 1 }; } catch (e) { return null; } }
+  function migrateLegacy() { try { curSlot = parseInt(localStorage.getItem(SLOT_KEY) || '0', 10) || 0; const legacy = localStorage.getItem(SAVE_KEY); if (legacy && !localStorage.getItem(saveKey(0))) localStorage.setItem(saveKey(0), legacy); } catch (e) {} }
+  function load() { try { const r = slotRaw(); if (!r) return defaultSave(); return Object.assign(defaultSave(), JSON.parse(r)); } catch (e) { return defaultSave(); } }
+  function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age, sick: s.sick })); try { localStorage.setItem(saveKey(), JSON.stringify(F)); } catch (e) {} }
+  function restartFarm() { try { localStorage.removeItem(saveKey()); } catch (e) {} F = null; running = false; shearSession = null; showSlotPicker(); }
 
   function startGame() {
     F = load(); layout(); ensureAudio();
@@ -292,6 +301,7 @@
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
     if (typeof F.dayT !== 'number') F.dayT = 0; if (F.won == null) F.won = false;
     if (typeof F.seasonT !== 'number') F.seasonT = 0; if (!F.weather) F.weather = 'clear'; if (typeof F.weatherT !== 'number') F.weatherT = 900;
+    if (typeof F.shearGear !== 'number') F.shearGear = 1; if (!F.records) F.records = { woolCrop: 0 };
     if (!F.troughs) { F.troughs = defaultTroughs(); layout(); }
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
@@ -326,7 +336,8 @@
     if (placing) { const wasB = !!placing.bkind; placing = null; if (wasB) { toast('🏗️ Built!'); sfx.build(); } else { selectedPen = F.pens[F.pens.length - 1]; toast('Pen dropped — resize corners · 🧱 stone · ✓ / ✕'); sfx.pop(); } persist(); return; }
 
     for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb' && dist(p.x, p.y, s.x, s.y - 6) < 30) {
-      if (insideAnyPen(s.x, s.y)) shearSheep(s); else { toast('🚧 Pen them, or hire a Shepherd ✂️'); flashAlert('🚧 Pen them, or hire a Shepherd ✂️', '#ffb03a'); sfx.err(); }
+      if (insideAnyPen(s.x, s.y)) { const list = sheep.filter(x => x.wool >= 100 && x.role !== 'lamb' && insideAnyPen(x.x, x.y)); startShearSession(list); }
+      else { toast('🚧 Herd them into a pen to shear!'); flashAlert('🚧 Pen them, or hire a Shepherd ✂️', '#ffb03a'); sfx.err(); }
       return;
     }
     for (const pen of F.pens) if (nearGate(pen, p.x, p.y)) { pen.gateOpen = !pen.gateOpen; toast(pen.gateOpen ? 'Gate opened' : 'Gate closed'); sfx.pop(); persist(); return; }
@@ -375,15 +386,17 @@
   }
   function onUp() { if (drag) { persist(); drag = null; } }
   const twoFingerY = (e) => (e.touches[0].clientY + e.touches[1].clientY) / 2;
-  canvas.addEventListener('touchstart', (e) => { if (e.touches.length >= 2) { panLast = twoFingerY(e); return; } onDown(e); }, { passive: false });
+  function ptRaw(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; }
+  canvas.addEventListener('touchstart', (e) => { if (shearSession) { e.preventDefault(); shearDown(ptRaw(e)); return; } if (e.touches.length >= 2) { panLast = twoFingerY(e); return; } onDown(e); }, { passive: false });
   canvas.addEventListener('touchmove', (e) => {
+    if (shearSession) { e.preventDefault(); shearMove(ptRaw(e)); return; }
     if (e.touches.length >= 2) { e.preventDefault(); const avg = twoFingerY(e); if (panLast != null && camMaxY() > 0) cam.y = clamp(cam.y - (avg - panLast), 0, camMaxY()); panLast = avg; return; }
     if (placing || drag) e.preventDefault(); onMove(e);
   }, { passive: false });
-  canvas.addEventListener('touchend', (e) => { if (!e.touches || e.touches.length === 0) panLast = null; onUp(e); });
-  canvas.addEventListener('mousedown', onDown);
-  window.addEventListener('mousemove', (e) => { if (placing || drag) onMove(e); });
-  window.addEventListener('mouseup', onUp);
+  canvas.addEventListener('touchend', (e) => { if (shearSession) { shearUp(); return; } if (!e.touches || e.touches.length === 0) panLast = null; onUp(e); });
+  canvas.addEventListener('mousedown', (e) => { if (shearSession) { shearDown(ptRaw(e)); return; } onDown(e); });
+  window.addEventListener('mousemove', (e) => { if (shearSession) { shearMove(ptRaw(e)); return; } if (placing || drag) onMove(e); });
+  window.addEventListener('mouseup', () => { if (shearSession) { shearUp(); return; } onUp(); });
   canvas.addEventListener('wheel', (e) => { if (camMaxY() > 0) { e.preventDefault(); cam.y = clamp(cam.y + e.deltaY * 0.5, 0, camMaxY()); } }, { passive: false });
 
   function herdTo(x, y) { x = clamp(x, paddock.x + 16, paddock.x + paddock.w - 16); y = clamp(y, paddock.y + 16, paddock.y + paddock.h - 16); for (const d of dogs) { d.tx = x + rand(-18, 18); d.ty = y + rand(-14, 14); d.moveT = 90; d.zoom = 1; } if (tractor) { tractor.tx = x; tractor.ty = y; tractor.zoom = 1; } pop(x, y, '🐾', '#fff'); }
@@ -613,6 +626,62 @@
       const a = Math.atan2(w.ty - w.y, w.tx - w.x);
       if (dist(w.x, w.y, w.tx, w.ty) > 4) { w.y = clamp(w.y + Math.sin(a) * spd * dt, paddock.y + 20, paddock.y + paddock.h - 18); const b = fieldBounds(w.y); w.x = clamp(w.x + Math.cos(a) * spd * dt, b.left, b.right); w.facing = Math.cos(a) >= 0 ? 1 : -1; w.step += dt; }
     }
+  }
+
+  // ---------- shearing minigame ----------
+  function shearGearInfo() { const lv = F.shearGear || 1; return { lv, clipR: 24 + (lv - 1) * 9, woolMult: 1 + (lv - 1) * 0.06, name: ['Hand Shears', 'Spring Shears', 'Powered Clippers', 'Pro Clippers', 'Golden Clippers'][lv - 1] || 'Shears' }; }
+  function startShearSession(list) {
+    if (!list || !list.length || shearSession) return;
+    shearSession = { queue: list.slice(), idx: 0, clip: { x: -999, y: -999, down: false, lx: 0, ly: 0 }, t: 0, sheepT: 0, started: false, totalWool: 0, phase: 'shearing', flashT: 0, cutT: 0, earned: 0, record: false, bestTime: 99 };
+    fluff.length = 0; pops.length = 0; herdGoal = null;
+    buildShearSheep(); syncShearUI(true); sfx.pop();
+  }
+  function buildShearSheep() {
+    const s = shearSession, sh = s.queue[s.idx];
+    s.cx = W / 2; s.cy = H * 0.52; s.rx = Math.min(W * 0.36, 168); s.ry = s.rx * 0.72;
+    s.breed = sh.breed; s.tufts = []; const gap = 17;
+    for (let y = -s.ry; y <= s.ry; y += gap) for (let x = -s.rx; x <= s.rx; x += gap) { if ((x * x) / (s.rx * s.rx) + (y * y) / (s.ry * s.ry) <= 0.94) s.tufts.push({ x: s.cx + x + rand(-3, 3), y: s.cy + y + rand(-3, 3), r: gap * rand(0.62, 0.84), ph: rand(0, 6), gone: false }); }
+    s.total = s.tufts.length; s.gone = 0; s.sheepT = 0; s.started = false;
+  }
+  function shearDown(p) { if (!shearSession) return; const s = shearSession; if (s.phase === 'summary') { s.phase = 'cutscene'; s.cutT = 0; return; } if (s.phase === 'cutscene') { endShearSession(); return; } s.clip.down = true; s.clip.x = p.x; s.clip.y = p.y; s.clip.lx = p.x; s.clip.ly = p.y; }
+  function shearMove(p) { if (!shearSession) return; shearSession.clip.x = p.x; shearSession.clip.y = p.y; }
+  function shearUp() { if (shearSession) shearSession.clip.down = false; }
+  function shearUpdate(dt) {
+    const s = shearSession; if (!s) return; s.t += dt; if (s.flashT > 0) s.flashT -= dt;
+    if (s.phase === 'shearing') {
+      const moved = Math.hypot(s.clip.x - s.clip.lx, s.clip.y - s.clip.ly); s.clip.lx = s.clip.x; s.clip.ly = s.clip.y;
+      if (s.clip.down && moved > 0.5) {
+        const r = shearGearInfo().clipR, r2 = r * r; let cut = 0;
+        for (const w of s.tufts) { if (w.gone) continue; const dx = w.x - s.clip.x, dy = w.y - s.clip.y; if (dx * dx + dy * dy < r2) { w.gone = true; s.gone++; cut++; for (let k = 0; k < 2 && fluff.length < 220; k++) fluff.push({ x: w.x, y: w.y, vx: rand(-2, 2), vy: rand(-3, -0.5), life: 1, r: w.r * 0.5, c: BREEDS[s.breed].wool }); } }
+        if (cut > 0 && !s.started) s.started = true;
+        if (cut > 0) sfx.shear();
+      }
+      if (s.started) s.sheepT += dt / 60;
+      if (s.gone >= s.total * 0.98) finishShearSheep();
+    } else if (s.phase === 'cutscene') { s.cutT += dt; if (s.cutT > 150) endShearSession(); }
+    for (let i = fluff.length - 1; i >= 0; i--) { const p = fluff[i]; p.vy += 0.15 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.02 * dt; if (p.life <= 0) fluff.splice(i, 1); }
+    for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 0.05 * dt; p.life -= 0.013 * dt; if (p.life <= 0) pops.splice(i, 1); }
+  }
+  function finishShearSheep() {
+    const s = shearSession, sh = s.queue[s.idx], gear = shearGearInfo();
+    const base = Math.max(1, Math.round(shearValue(sh) * gear.woolMult));
+    const spd = s.sheepT, perf = spd < 2.5 ? 1.7 : spd < 4 ? 1.4 : spd < 6.5 ? 1.15 : 1.0;
+    const got = Math.round(base * perf);
+    s.totalWool += got; s.bestTime = Math.min(s.bestTime, spd);
+    sh.wool = 0; sh.baaT = 40; sh.heartT = 30;
+    s.lastGot = got; s.lastPerf = perf; s.lastSpd = spd; s.flashT = 70;
+    pop(s.cx, s.cy - s.ry - 20, '+' + got + '🧺 ' + (perf >= 1.7 ? 'FAST!' : perf >= 1.4 ? 'Great!' : 'Good'), '#fff5c8', true); sfx.coin();
+    s.idx++;
+    if (s.idx >= s.queue.length) {
+      s.earned = Math.floor(s.totalWool * woolPrice()); F.money += s.earned;
+      if (!F.records) F.records = { woolCrop: 0 }; s.record = s.totalWool > (F.records.woolCrop || 0); if (s.record) F.records.woolCrop = s.totalWool;
+      s.phase = 'summary'; sfx.up(); persist(); updateHud();
+    } else buildShearSheep();
+  }
+  function endShearSession() {
+    const pens = new Set(); for (const sh of shearSession.queue) { const pn = insideAnyPen(sh.x, sh.y); if (pn) pens.add(pn); }
+    for (const pn of pens) pn.gateOpen = true;   // "let them out to pasture" cutscene
+    shearSession = null; fluff.length = 0; syncShearUI(false); toast('✂️ Good shearing! 🐑'); persist(); updateHud();
   }
 
   function catchPredator(fx, d) {
@@ -906,6 +975,68 @@
   }
   function drawTractor(t) { const sc = dscale(t.y), f = t.facing || 1; ctx.save(); ctx.translate(t.x, t.y); ctx.scale(f * sc, sc); shadowLocal(0, 12, 20); ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.arc(-9, 8, 9, 0, 7); ctx.fill(); ctx.beginPath(); ctx.arc(12, 10, 5, 0, 7); ctx.fill(); ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.arc(-9, 8, 3.5, 0, 7); ctx.fill(); ctx.beginPath(); ctx.arc(12, 10, 2, 0, 7); ctx.fill(); ctx.fillStyle = '#3aa64a'; roundRect(-14, -6, 26, 14, 3); ctx.fill(); ctx.fillStyle = '#2f8a3c'; roundRect(-2, -18, 12, 14, 3); ctx.fill(); ctx.fillStyle = '#bfe6ff'; roundRect(0, -15, 8, 8, 2); ctx.fill(); ctx.fillStyle = '#333'; ctx.fillRect(-13, -14, 3, 8); ctx.restore(); }
 
+  // ---------- shearing minigame render ----------
+  const SKIN = { normal: '#e6b6a2', merino: '#e9cbb0', golden: '#e8c98a', black: '#4a4650' };
+  function shearRender() {
+    const s = shearSession;
+    const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#26364f'); bg.addColorStop(1, '#141f30'); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#31445f'; ctx.fillRect(0, s.cy + s.ry * 0.86, W, H);   // pen floor
+    for (let i = 0; i < 6; i++) { ctx.fillStyle = '#3a5170'; ctx.fillRect(i * W / 5 - 6, s.cy + s.ry * 0.86, 4, H); }   // floorboards
+    drawShornBody(s);
+    for (const w of s.tufts) { if (w.gone) continue; const wob = Math.sin(s.t / 14 + w.ph) * 0.8; ctx.fillStyle = BREEDS[s.breed].wool; ctx.beginPath(); ctx.arc(w.x, w.y + wob, w.r, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.arc(w.x - w.r * 0.3, w.y - w.r * 0.3 + wob, w.r * 0.4, 0, 7); ctx.fill(); }
+    for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c || '#f4f3ee'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
+    for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.font = '900 ' + p.sz + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = p.col; ctx.fillText(p.txt, p.x, p.y); } ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
+    if (s.phase === 'shearing' && s.clip.x > -100) drawClipper(s.clip);
+    drawShearHud(s);
+    if (s.phase === 'summary') drawShearSummary(s);
+    if (s.phase === 'cutscene') drawShearCutscene(s);
+  }
+  function drawShornBody(s) {
+    const cx = s.cx, cy = s.cy, rx = s.rx * 0.82, ry = s.ry * 0.82, skin = SKIN[s.breed] || '#e6b6a2';
+    ctx.strokeStyle = '#3a3238'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+    for (const lx of [-0.45, -0.15, 0.2, 0.5]) { ctx.beginPath(); ctx.moveTo(cx + rx * lx, cy + ry * 0.5); ctx.lineTo(cx + rx * lx, cy + ry * 1.25); ctx.stroke(); }
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 7); ctx.fill();   // shorn body
+    ctx.fillStyle = 'rgba(0,0,0,0.06)'; ctx.beginPath(); ctx.ellipse(cx, cy + ry * 0.3, rx * 0.95, ry * 0.6, 0, 0, 7); ctx.fill();
+    // head
+    const hx = cx + rx * 0.92, hy = cy - ry * 0.2;
+    ctx.fillStyle = s.breed === 'black' ? '#2a2630' : '#3a3238'; ctx.beginPath(); ctx.ellipse(hx, hy, rx * 0.32, ry * 0.42, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hx + rx * 0.05, hy - ry * 0.05, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(hx + rx * 0.07, hy - ry * 0.05, 2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2c262b'; ctx.beginPath(); ctx.ellipse(hx + rx * 0.26, hy + ry * 0.05, 5, 4, 0, 0, 7); ctx.fill();   // nose
+  }
+  function drawClipper(c) {
+    ctx.save(); ctx.translate(c.x, c.y);
+    ctx.fillStyle = c.down ? '#ffd23d' : 'rgba(255,210,61,0.6)'; ctx.strokeStyle = '#241a12'; ctx.lineWidth = 2;
+    roundRect(-13, -9, 26, 18, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#c9ccd6'; ctx.fillRect(-4, -20, 8, 11);   // blade
+    if (c.down) { ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.arc(0, -20, 9, -0.5, Math.PI + 0.5); ctx.stroke(); }
+    ctx.restore();
+  }
+  function drawShearHud(s) {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'rgba(11,18,32,0.6)'; roundRect(W / 2 - 150, 12 + 0, 300, 30, 12); ctx.fill();
+    ctx.fillStyle = '#eaf0ff'; ctx.font = '800 14px system-ui';
+    ctx.fillText('✂️ ' + Math.round(s.gone / s.total * 100) + '%   ⏱️ ' + s.sheepT.toFixed(1) + 's   🐑 ' + (s.idx + 1) + '/' + s.queue.length + '   🏆 ' + Math.floor(F.records.woolCrop || 0), W / 2, 32);
+    if (s.flashT > 0 && s.phase === 'shearing') { ctx.globalAlpha = clamp(s.flashT / 40, 0, 1); ctx.fillStyle = '#ffd23d'; ctx.font = '900 20px system-ui'; ctx.fillText(s.lastPerf >= 1.7 ? '⚡ FAST! +' + s.lastGot : '+' + s.lastGot + ' 🧺', W / 2, 62); ctx.globalAlpha = 1; }
+    // instruction
+    if (!s.started && s.phase === 'shearing') { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 15px system-ui'; ctx.fillText('Drag the clippers over the wool — go fast!', W / 2, s.cy + s.ry + 46); }
+  }
+  function drawShearSummary(s) {
+    ctx.fillStyle = 'rgba(6,10,20,0.7)'; ctx.fillRect(0, 0, W, H);
+    const py = H * 0.32; ctx.textAlign = 'center';
+    ctx.fillStyle = '#58e08a'; ctx.font = '900 34px system-ui'; ctx.fillText('GOOD SHEARING! ✂️', W / 2, py);
+    ctx.fillStyle = '#fff5c8'; ctx.font = '900 26px system-ui'; ctx.fillText('🧺 Wool crop: ' + s.totalWool, W / 2, py + 50);
+    ctx.fillStyle = '#ffd23d'; ctx.font = '900 30px system-ui'; ctx.fillText('💰 +$' + s.earned, W / 2, py + 92);
+    if (s.record) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 22px system-ui'; ctx.fillText('🏆 NEW RECORD WOOL CROP!', W / 2, py + 130); }
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 15px system-ui'; ctx.fillText('Best sheep: ' + s.bestTime.toFixed(1) + 's · tap to continue', W / 2, py + 168);
+  }
+  function drawShearCutscene(s) {
+    ctx.fillStyle = 'rgba(6,10,20,0.5)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = '900 26px system-ui'; ctx.fillText('Out to pasture! 🐑', W / 2, H * 0.3);
+    const n = Math.min(s.queue.length, 6), prog = clamp(s.cutT / 150, 0, 1);
+    for (let i = 0; i < n; i++) { const x = -60 + (W + 120) * clamp(prog * 1.4 - i * 0.08, 0, 1), y = H * 0.55 + Math.sin(s.t / 8 + i) * 4 + i * 6; ctx.font = '40px system-ui'; ctx.fillText('🐑', x, y); }
+  }
+
   // ---------- HUD + actions ----------
   const el = (id) => document.getElementById(id);
   function woolPrice() { return (3 + (F.farmLevel - 1) * 2) * techSellMult(); }
@@ -947,7 +1078,8 @@
     { t: '👷 In the 🛒 SHOP hire Farmhands: ✂️ Shepherd shears, 🪣 Hauler refills, 🪓 Woodcutter chops 🪵 wood, ⛏️ Miner digs 🪨 stone. Tap a worker to change their job!' },
     { t: '🏗️ Spend wood + stone to BUILD a 🏪 Market, 🗼 Watchtower, 🛖 Bunkhouse, Wells & Barns. Upgrade a pen to 🧱 STONE and shut the gate — predators can\'t get in!' },
     { t: '🔬 RESEARCH tech (top-right) for permanent boosts: sharper shears, hardy breeds, faster hands & more.' },
-    { t: '🐾 WOOFA button herds the flock into a pen. 🦊 Foxes AND 🐺 wolves raid — dogs FLING them! Advance ERAS to grow. Have fun! 🐑' },
+    { t: '🐾 WOOFA button herds the flock into a pen. Then tap a fluffy ✂️ sheep to SHEAR them all in the shearing minigame — go fast for record wool crops & more money!' },
+    { t: '🦊 Foxes AND 🐺 wolves raid — dogs FLING them! Advance ERAS to grow, and ⚙ (top-right) lets you switch farms or restart. Have fun! 🐑' },
   ];
   let tutIx = 0;
   function startTutorial() { tutIx = 0; showTut(); }
@@ -986,6 +1118,27 @@
   }
   function research(k) { const t = TECH[k]; if (F.tech[k] || !canAfford(t)) return; F.money -= t.coin || 0; F.wood -= t.wood || 0; F.stone -= t.stone || 0; F.tech[k] = true; toast('🔬 Researched ' + t.name + '!'); confetti(W / 2, H * 0.4, ['🔬', '✨', '⭐']); sfx.tech(); persist(); updateHud(); }
 
+  // ---------- shear UI + save slots + menu ----------
+  function syncShearUI(active) { for (const id of ['farmHud', 'farmBar', 'btnWoofa']) { const e = el(id); if (e) e.classList.toggle('hidden', active); } }
+  function showSlotPicker() { renderSlots(); const o = el('slotScreen'); if (o) o.classList.remove('hidden'); const st = el('startScreen'); if (st) st.classList.add('hidden'); const m = el('menuScreen'); if (m) m.classList.add('hidden'); }
+  function renderSlots() {
+    for (let i = 0; i < NSLOTS; i++) { const b = el('slot' + i); if (!b) continue; const sum = slotSummary(i), info = b.querySelector('.slot-info'), wipe = b.querySelector('.slot-wipe');
+      if (info) info.textContent = sum ? (ERAS[Math.min(sum.era - 1, ERAS.length - 1)].ic + ' ' + ERAS[Math.min(sum.era - 1, ERAS.length - 1)].name + ' · 💰' + sum.money + ' · 🐑' + sum.sheep) : 'Empty — start a new farm';
+      if (wipe) wipe.style.display = sum ? 'block' : 'none';
+      b.classList.toggle('cur', i === curSlot);
+    }
+  }
+  function pickSlot(i) { curSlot = i; try { localStorage.setItem(SLOT_KEY, String(i)); } catch (e) {} const o = el('slotScreen'); if (o) o.classList.add('hidden'); startGame(); }
+  function wipeSlot(i) { try { localStorage.removeItem(saveKey(i)); } catch (e) {} renderSlots(); }
+  function openMenu() { const m = el('menuScreen'); if (m) m.classList.remove('hidden'); const r = el('menuRestart'); if (r) r.textContent = '🔄 Restart this Farm'; }
+  function closeMenu() { const m = el('menuScreen'); if (m) m.classList.add('hidden'); }
+  { const b = el('btnMenu'); if (b) b.onclick = () => { if (running) openMenu(); }; }
+  { const b = el('menuClose'); if (b) b.onclick = closeMenu; }
+  { const b = el('menuSwitch'); if (b) b.onclick = () => { persist(); closeMenu(); showSlotPicker(); }; }
+  { let armed = false; const b = el('menuRestart'); if (b) b.onclick = () => { if (!armed) { armed = true; b.textContent = '⚠️ Tap again to wipe this farm'; setTimeout(() => { armed = false; b.textContent = '🔄 Restart this Farm'; }, 2500); return; } armed = false; closeMenu(); restartFarm(); }; }
+  for (let i = 0; i < NSLOTS; i++) { const b = el('slot' + i); if (b) { b.onclick = (e) => { if (e.target && e.target.classList && e.target.classList.contains('slot-wipe')) return; pickSlot(i); }; const w = b.querySelector('.slot-wipe'); if (w) w.onclick = (e) => { e.stopPropagation(); wipeSlot(i); }; } }
+  { const b = el('chooseFarm'); if (b) b.onclick = showSlotPicker; }
+
   // ---------- shop ----------
   const startScreen = el('startScreen'), shopScreen = el('shopScreen');
   function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); if (researchScreen) researchScreen.classList.add('hidden'); const wsn = el('winScreen'); if (wsn) wsn.classList.add('hidden'); }
@@ -995,6 +1148,7 @@
   function expandCost() { return Math.round(300 * Math.pow(F.farmLevel, 1.5)); }
   function houseCost() { return Math.round(300 * F.house.level); }
   function workerCost() { return 90 + workers.length * 55; }
+  function shearsCost() { return 200 * (F.shearGear || 1); }
 
   function renderShop() {
     el('shopMoney').textContent = Math.floor(F.money);
@@ -1011,6 +1165,7 @@
     rows.push({ emoji: '🏠', name: 'Upgrade Farmhouse (Lv ' + F.house.level + ')', desc: F.house.level >= 5 ? 'Maxed! Passive coin, faster wool, +worker cap.' : 'Passive coin, faster wool, +1 worker cap, fancier house.', act: F.house.level >= 5 ? { tag: 'MAX' } : { label: '$' + houseCost(), fn: buyHouse, afford: F.money >= houseCost() } });
     const et = F.energy, next = ENERGY[et + 1];
     rows.push({ emoji: et >= 3 ? '⚡' : et === 2 ? '☀️' : et === 1 ? '🌬️' : '🔌', name: next ? 'Upgrade Energy → ' + next.short : 'Energy: Power Grid', desc: next ? next.desc + ' (now: ' + ENERGY[et].short + ')' : 'Top-tier energy.', act: next ? { label: '$' + next.cost, fn: buyEnergy, afford: F.money >= next.cost } : { tag: 'MAX' } });
+    { const g = shearGearInfo(); rows.push({ emoji: '✂️', name: 'Upgrade Shears (' + g.name + ')', desc: F.shearGear >= 5 ? 'Golden Clippers — top speed & +wool. 🏆 Record crop: ' + Math.floor(F.records.woolCrop || 0) : 'Bigger, faster clippers → shear quicker for a better price. 🏆 Record crop: ' + Math.floor(F.records.woolCrop || 0), act: F.shearGear >= 5 ? { tag: 'MAX' } : { label: '$' + shearsCost(), fn: buyShears, afford: F.money >= shearsCost() } }); }
     rows.push({ emoji: '🚜', name: 'Buy a Tractor', desc: F.upgrades.tractor ? 'Owned — tap the field to drive it.' : 'Tap the field to send it herding.', act: F.upgrades.tractor ? { tag: 'Owned' } : { label: '$650', fn: buyTractor, afford: F.money >= 650 } });
     rows.push({ emoji: '🌳', name: 'Plant a Tree', desc: 'More 🪵 wood for Woodcutters, and prettier.', act: { label: '$70', fn: plantTree, afford: F.money >= 70 } });
     rows.push({ emoji: '🪨', name: 'Haul in a Boulder', desc: 'A rock for Miners to dig 🪨 stone from.', act: { label: '$90', fn: addRock, afford: F.money >= 90 } });
@@ -1033,6 +1188,7 @@
   function buyEnergy() { const next = ENERGY[F.energy + 1]; if (!next || F.money < next.cost) return; F.money -= next.cost; F.energy++; toast('🔌 Energy upgraded to ' + next.short + '!'); confetti(W / 2, H * 0.4, ['⚡', '🎉', '☀️']); sfx.up(); persist(); }
   function buyDog(k) { const d = DOGS[k]; if (F.money < d.cost || F.dogs[k]) return; F.money -= d.cost; F.dogs[k] = true; rebuildDogs(); toast('🐾 ' + d.name + ' joined the farm!'); confetti(W / 2, H * 0.4, ['🐾', '🎉']); sfx.up(); persist(); }
   function buyTractor() { if (F.money < 650 || F.upgrades.tractor) return; F.money -= 650; F.upgrades.tractor = true; tractor = makeTractor(); toast('🚜 Tractor delivered!'); sfx.up(); persist(); }
+  function buyShears() { const c = shearsCost(); if (F.money < c || F.shearGear >= 5) return; F.money -= c; F.shearGear = (F.shearGear || 1) + 1; toast('✂️ Shears upgraded — ' + shearGearInfo().name + '!'); confetti(W / 2, H * 0.4, ['✂️', '⭐']); sfx.up(); persist(); }
   function buyHouse() { const c = houseCost(); if (F.money < c || F.house.level >= 5) return; F.money -= c; F.house.level++; toast('🏠 Farmhouse upgraded to Lv ' + F.house.level + '! (+worker cap)'); confetti(house.x, house.y, ['🏠', '⭐', '✨']); sfx.up(); persist(); }
   function buyPen() { if (F.money < PEN_COST) return; F.money -= PEN_COST; const pen = { x: paddock.x + paddock.w / 2 - 75, y: paddock.y + paddock.h / 2 - 60, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: true }; F.pens.push(pen); placing = pen; closeShop(); toast('🚧 Drag into place, then tap to drop.'); persist(); }
   function buyBuilding(k) { const bd = BUILD[k]; if (F.money < bd.coin || F.wood < bd.wood || F.stone < (bd.stone || 0)) return; F.money -= bd.coin; F.wood -= bd.wood; F.stone -= (bd.stone || 0); const n = F.buildings.length; const b = { bkind: k, x: clamp(paddock.x + paddock.w / 2 - bd.w / 2 + (n % 3 - 1) * 66, paddock.x + 4, paddock.x + paddock.w - bd.w - 4), y: paddock.y + paddock.h * 0.35 + (n % 4) * 40, w: bd.w, h: bd.h, cd: 0 }; F.buildings.push(b); placing = b; closeShop(); toast('🏗️ Place your ' + bd.name + ' — tap to drop.'); persist(); }
@@ -1044,8 +1200,9 @@
 
   // ---------- loop ----------
   let lastT = performance.now(), lastErr = null;
-  function frame(nt) { let dt = (nt - lastT) / 16.6667; lastT = nt; dt = clamp(dt, 0, 2.5); try { update(dt); render(); if (musicOn) musicSched(); } catch (e) { lastErr = e; } requestAnimationFrame(frame); }
+  function frame(nt) { let dt = (nt - lastT) / 16.6667; lastT = nt; dt = clamp(dt, 0, 2.5); try { if (shearSession) { shearUpdate(dt); shearRender(); } else { update(dt); render(); } if (musicOn) musicSched(); } catch (e) { lastErr = e; } requestAnimationFrame(frame); }
   window.addEventListener('beforeunload', persist);
+  migrateLegacy();
   resize(); requestAnimationFrame(frame);
 
   if (location.hash.indexOf('debug') !== -1) {
@@ -1060,6 +1217,11 @@
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
       addSheep(n) { for (let i = 0; i < (n || 1); i++) sheep.push(makeSheep({ role: i % 2 ? 'ram' : 'ewe', wool: 0 })); updateHud(); },
       satiate() { for (const s of sheep) { s.hunger = 8; s.thirst = 8; s.starve = 0; s.sick = false; } },
+      shearStart() { const p = F.pens[0]; for (const s of sheep) if (s.role !== 'lamb') { s.wool = 100; if (p) { s.x = p.x + p.w / 2 + rand(-p.w * 0.2, p.w * 0.2); s.y = p.y + p.h / 2 + rand(-p.h * 0.2, p.h * 0.2); } } const list = sheep.filter(x => x.wool >= 100 && x.role !== 'lamb' && insideAnyPen(x.x, x.y)); startShearSession(list); return list.length; },
+      shearInfo() { const s = shearSession; return s ? { phase: s.phase, idx: s.idx, queue: s.queue.length, gone: s.gone, total: s.total, totalWool: s.totalWool, earned: s.earned, record: s.record } : null; },
+      shearSweep() { const s = shearSession; if (!s || s.phase !== 'shearing') return; s.clip.down = true; for (let y = s.cy - s.ry - 5; y <= s.cy + s.ry + 5; y += 7) for (let x = s.cx - s.rx - 5; x <= s.cx + s.rx + 5; x += 7) { s.clip.lx = s.clip.x; s.clip.ly = s.clip.y; s.clip.x = x; s.clip.y = y; shearUpdate(1); } s.clip.down = false; },
+      shearTap() { shearDown({ x: -1, y: -1 }); }, shearStep(n) { for (let i = 0; i < (n || 1); i++) shearUpdate(1); }, shearRenderNow() { if (shearSession) shearRender(); }, buyShears, gear() { return F.shearGear; }, records() { return F.records; },
+      slot() { return curSlot; }, pickSlot, restart: restartFarm, slotSummary,
       hire: hireWorker, fire() { if (workers.length) { workers.pop(); syncWorkerJobs(); } }, setJob(i, j) { if (workers[i]) { workers[i].job = j; syncWorkerJobs(); } },
       research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
       buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,

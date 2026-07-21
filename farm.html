@@ -29,6 +29,7 @@
       <button class="hud-mini" id="btnResearch" title="Research">🔬</button>
       <button class="hud-mini" id="btnSound" title="Sound">🔊</button>
       <button class="hud-mini" id="btnHelp" title="How to play">?</button>
+      <button class="hud-mini" id="btnMenu" title="Menu">⚙</button>
     </div>
     <div class="gauges">
       <div class="gauge">
@@ -75,6 +76,28 @@
       <h1 class="intro-title">EWE BEAUTY<span>FARMING Co</span></h1>
       <p class="intro-tag">Raise sheep · grow wool · build the farm 🚜</p>
       <button class="btn btn-primary intro-play" id="farmPlay">START FARMING</button>
+      <button class="btn-ghost choose-farm" id="chooseFarm">👥 Choose a farm slot</button>
+    </div>
+  </div>
+
+  <!-- save slot picker -->
+  <div id="slotScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>Choose your farm 🐑</h2>
+      <p class="tagline" style="margin:0 0 16px">Each slot is a separate farm — one for each shepherd!</p>
+      <button class="slot-card" id="slot0"><span class="slot-name">🚜 Farm 1</span><span class="slot-info">Empty</span><span class="slot-wipe" title="Erase">🗑</span></button>
+      <button class="slot-card" id="slot1"><span class="slot-name">🚜 Farm 2</span><span class="slot-info">Empty</span><span class="slot-wipe" title="Erase">🗑</span></button>
+      <button class="slot-card" id="slot2"><span class="slot-name">🚜 Farm 3</span><span class="slot-info">Empty</span><span class="slot-wipe" title="Erase">🗑</span></button>
+    </div>
+  </div>
+
+  <!-- in-game menu -->
+  <div id="menuScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>⚙ Menu</h2>
+      <button class="btn btn-primary" id="menuSwitch">👥 Switch Farm</button>
+      <button class="btn btn-ghost" id="menuRestart">🔄 Restart this Farm</button>
+      <button class="btn btn-ghost" id="menuClose">Back to the farm</button>
     </div>
   </div>
 
