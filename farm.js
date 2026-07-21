@@ -1,9 +1,9 @@
 /* =====================================================================
    EWE BEAUTY FARMING Co — Age-of-Empires-but-sheep.
-   Hire farmhands who run the farm (shear, haul feed/water, chop wood),
-   gather WOOD from trees, BUILD a Market / Watchtower / Well / Hay Barn,
-   and advance through ERAS. Woofa herds; foxes raid; pens are resizable.
-   Angled 2.5D view. Saves + grows offline. Vanilla canvas.
+   Hire farmhands (shear / haul / chop wood / mine stone), gather WOOD & STONE,
+   BUILD a Market / Watchtower / Well / Hay Barn / Bunkhouse, upgrade pens to
+   fox-proof STONE, RESEARCH a tech tree, and fend off foxes AND wolf packs
+   as you advance through ERAS. Woofa herds. Minimap. Saves + grows offline.
    ===================================================================== */
 (() => {
   'use strict';
@@ -38,9 +38,9 @@
     black: { name: 'Black', mult: 6.5, cost: 2800, wool: '#3a3640', lvl: 5 },
   };
   const DOGS = {
-    woofa: { name: 'Woofa', kind: 'woofa', cost: 0, bonus: 0.0, desc: 'Your loyal good boy. Herds the flock and chases off foxes.' },
+    woofa: { name: 'Woofa', kind: 'woofa', cost: 0, bonus: 0.0, desc: 'Your loyal good boy. Herds the flock and chases off predators.' },
     winnie: { name: 'Winnie', kind: 'poodle', cost: 1600, bonus: 0.12, desc: 'Fluffy miniature poodle. +12% wool growth and another set of eyes on the foxes.' },
-    tia: { name: 'Tia', kind: 'schnauzer', cost: 3400, bonus: 0.18, desc: 'Sharp miniature schnauzer. +18% wool growth and a fierce fox-chaser.' },
+    tia: { name: 'Tia', kind: 'schnauzer', cost: 3400, bonus: 0.18, desc: 'Sharp miniature schnauzer. +18% wool growth and a fierce predator-chaser.' },
   };
   const ENERGY = [
     { name: 'No power', short: 'None' },
@@ -48,39 +48,47 @@
     { name: 'Solar Array', short: 'Solar', cost: 520, desc: 'Sun tops up feed & water — free to run.' },
     { name: 'Power Grid', short: 'Grid', cost: 980, desc: 'Auto-fills feed & water FAST — the bill nibbles your coin.' },
   ];
-  // farmhands
-  const JOBS = ['shear', 'haul', 'wood'];
+  const JOBS = ['shear', 'haul', 'wood', 'mine'];
   const WORKER = {
     shear: { name: 'Shepherd', emoji: '✂️', col: '#3a6ea5', desc: 'Roams the farm shearing fluffy sheep into your wool store.' },
     haul: { name: 'Hauler', emoji: '🪣', col: '#2f8a6a', desc: 'Keeps the feed & water troughs topped up (small coin per haul).' },
     wood: { name: 'Woodcutter', emoji: '🪓', col: '#8a5a34', desc: 'Chops trees into 🪵 wood for building.' },
+    mine: { name: 'Miner', emoji: '⛏️', col: '#6a6f76', desc: 'Mines rocks into 🪨 stone for walls & tech.' },
   };
-  // buildings
   const BUILD = {
-    market: { name: 'Market', emoji: '🏪', coin: 220, wood: 20, w: 58, h: 46, desc: 'Auto-sells your wool for coin, little by little.' },
-    tower: { name: 'Watchtower', emoji: '🗼', coin: 180, wood: 25, w: 30, h: 54, desc: 'Scares off foxes that wander near it.' },
-    well: { name: 'Well', emoji: '💧', coin: 160, wood: 12, w: 34, h: 34, desc: 'Slowly tops up the water trough.' },
-    haybarn: { name: 'Hay Barn', emoji: '🌾', coin: 200, wood: 18, w: 54, h: 44, desc: 'Slowly tops up the feed trough.' },
+    market: { name: 'Market', emoji: '🏪', coin: 220, wood: 20, stone: 0, w: 58, h: 46, desc: 'Auto-sells your wool for coin, little by little.' },
+    tower: { name: 'Watchtower', emoji: '🗼', coin: 180, wood: 25, stone: 10, w: 30, h: 54, desc: 'Scares off foxes that wander near.' },
+    bunk: { name: 'Bunkhouse', emoji: '🛖', coin: 260, wood: 30, stone: 0, w: 54, h: 40, desc: 'Houses +2 farmhands (raises your worker cap).' },
+    well: { name: 'Well', emoji: '💧', coin: 160, wood: 12, stone: 8, w: 34, h: 34, desc: 'Slowly tops up the water trough.' },
+    haybarn: { name: 'Hay Barn', emoji: '🌾', coin: 200, wood: 18, stone: 0, w: 54, h: 44, desc: 'Slowly tops up the feed trough.' },
   };
+  const TECH = {
+    shears: { name: 'Sharper Shears', emoji: '✂️', coin: 400, wood: 0, stone: 0, desc: '+25% wool from every shear.' },
+    hardy: { name: 'Hardy Breeds', emoji: '💪', coin: 500, wood: 20, stone: 0, desc: 'Sheep get hungry & thirsty 20% slower.' },
+    fast: { name: 'Fast Hands', emoji: '⚡', coin: 450, wood: 15, stone: 0, desc: 'Farmhands move & work 25% faster.' },
+    barons: { name: 'Wool Barons', emoji: '🎩', coin: 700, wood: 0, stone: 0, desc: '+30% wool sell price.' },
+    pasture: { name: 'Rich Pastures', emoji: '🌾', coin: 350, wood: 15, stone: 0, desc: 'Grass & bushes regrow twice as fast.' },
+    guard: { name: 'Guard Training', emoji: '🎖️', coin: 600, wood: 0, stone: 20, desc: 'Dogs catch predators from further away.' },
+    masonry: { name: 'Masonry', emoji: '🧱', coin: 500, wood: 0, stone: 30, desc: 'Stone pen upgrades cost far less stone.' },
+  };
+  const STONE_PEN_COST = 30;
 
   const rollRole = () => Math.random() < 0.7 ? 'ewe' : 'ram';
 
   const defaultSave = () => ({
-    money: 90, wool: 0, feed: 60, water: 60, wood: 25,
-    sheep: [
-      { breed: 'normal', role: 'ewe', wool: 25 }, { breed: 'normal', role: 'ewe', wool: 10 }, { breed: 'normal', role: 'ram', wool: 15 },
-    ],
+    money: 90, wool: 0, feed: 60, water: 60, wood: 25, stone: 0,
+    sheep: [{ breed: 'normal', role: 'ewe', wool: 25 }, { breed: 'normal', role: 'ewe', wool: 10 }, { breed: 'normal', role: 'ram', wool: 15 }],
     sheepCap: 6, farmLevel: 1, energy: 0,
     dogs: { woofa: true }, upgrades: { tractor: false },
-    pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, _init: false }],
-    house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [],
+    pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: false }],
+    house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
     tutorialDone: false, muted: false, lastTime: nowMs(),
   });
 
   let F = null;
-  const sheep = [], dogs = [], foxes = [], fluff = [], grass = [], pops = [], workers = [];
+  const sheep = [], dogs = [], preds = [], fluff = [], grass = [], pops = [], workers = [];
   let tractor = null, paddock = {}, feedTrough = {}, waterTrough = {}, shed = {}, house = {};
-  let running = false, tick = 0, breedTimer = 1600, foxTimer = 1600, alertTimer = 0;
+  let running = false, tick = 0, breedTimer = 1600, predTimer = 1600, alertTimer = 0;
   let placing = null, drag = null, selectedPen = null, herdGoal = null;
 
   function spaceMargins() { const lvl = F ? F.farmLevel : 1; return { top: Math.max(150, 178 - (lvl - 1) * 6), bot: 128, mx: Math.max(6, 18 - (lvl - 1) * 2) }; }
@@ -101,15 +109,25 @@
   const alerts = [];
   function flashAlert(msg, col, big) { const ex = alerts.find(a => a.msg === msg); if (ex) { ex.t = 1; return; } alerts.push({ msg, col: col || '#ff5a5a', t: 1, big: !!big }); if (alerts.length > 3) alerts.shift(); }
 
+  // tech helpers
+  const T = (k) => F.tech && F.tech[k];
+  const techWoolMult = () => T('shears') ? 1.25 : 1;
+  const techNeedMult = () => T('hardy') ? 0.8 : 1;
+  const techWorkerSpeed = () => T('fast') ? 1.25 : 1;
+  const techSellMult = () => T('barons') ? 1.3 : 1;
+  const techGrass = () => T('pasture') ? 2 : 1;
+  const techDogRange = () => T('guard') ? 1.3 : 1;
+  const stonePenCost = () => T('masonry') ? 12 : STONE_PEN_COST;
+
   // ---------- sound ----------
   let actx = null;
   function beep(freq, dur, type, vol) { if (!F || F.muted) return; try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = freq; g.gain.value = (vol || 0.05); o.connect(g); g.connect(actx.destination); const t = actx.currentTime; o.start(t); g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.12)); o.stop(t + (dur || 0.12) + 0.02); } catch (e) {} }
   const sfx = {
     coin() { beep(880, 0.09, 'triangle', 0.05); setTimeout(() => beep(1320, 0.08, 'triangle', 0.045), 60); },
-    shear() { beep(520, 0.06, 'square', 0.04); }, chop() { beep(140, 0.08, 'square', 0.05); }, pop() { beep(660, 0.07, 'sine', 0.05); },
-    fox() { beep(180, 0.18, 'sawtooth', 0.05); }, boom() { beep(120, 0.25, 'sawtooth', 0.07); setTimeout(() => beep(90, 0.2, 'square', 0.05), 40); },
+    shear() { beep(520, 0.06, 'square', 0.04); }, chop() { beep(140, 0.08, 'square', 0.05); }, mine() { beep(200, 0.07, 'square', 0.05); }, pop() { beep(660, 0.07, 'sine', 0.05); },
+    fox() { beep(180, 0.18, 'sawtooth', 0.05); }, wolf() { beep(110, 0.3, 'sawtooth', 0.06); }, boom() { beep(120, 0.25, 'sawtooth', 0.07); setTimeout(() => beep(90, 0.2, 'square', 0.05), 40); },
     up() { beep(523, 0.1, 'triangle', 0.05); setTimeout(() => beep(784, 0.14, 'triangle', 0.05), 90); }, woof() { beep(240, 0.12, 'square', 0.05); setTimeout(() => beep(200, 0.1, 'square', 0.04), 90); },
-    build() { beep(392, 0.09, 'square', 0.05); setTimeout(() => beep(523, 0.1, 'triangle', 0.05), 90); }, err() { beep(160, 0.12, 'square', 0.04); },
+    build() { beep(392, 0.09, 'square', 0.05); setTimeout(() => beep(523, 0.1, 'triangle', 0.05), 90); }, tech() { beep(660, 0.08, 'triangle', 0.05); setTimeout(() => beep(990, 0.12, 'triangle', 0.05), 80); }, err() { beep(160, 0.12, 'square', 0.04); },
   };
 
   // ---------- particles ----------
@@ -130,13 +148,16 @@
   function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1, orbit: rand(0, 6), _fx: null }; }
   function makeWorker(job) { return { job, x: house.x + rand(0, 40), y: house.y + rand(40, 60), tx: 0, ty: 0, moveT: 0, cd: 0, facing: 1, step: 0 }; }
   function rebuildWorkers() { workers.length = 0; for (const w of (F.workers || [])) workers.push(makeWorker(w.job)); }
-  function workerCap() { return 3 + (F.farmLevel - 1) + (F.house.level - 1); }
+  function bunkCount() { return F.buildings.filter(b => b.bkind === 'bunk').length; }
+  function workerCap() { return 3 + (F.farmLevel - 1) + (F.house.level - 1) + bunkCount() * 2; }
   function initGrass() { grass.length = 0; for (let i = 0; i < 40; i++) grass.push({ x: rand(paddock.x + 20, paddock.x + paddock.w - 20), y: rand(paddock.y + 20, paddock.y + paddock.h - 24), amt: rand(0.35, 0.9) }); }
   function initPlants() {
     F.plants = [];
     F.plants.push({ type: 'tree', x: paddock.x + paddock.w * 0.16, y: paddock.y + 30, sz: rand(0.9, 1.1), wood: 100 });
     F.plants.push({ type: 'tree', x: paddock.x + paddock.w * 0.84, y: paddock.y + 26, sz: rand(0.9, 1.1), wood: 100 });
     F.plants.push({ type: 'bush', x: paddock.x + paddock.w * 0.5, y: paddock.y + paddock.h * 0.32, sz: 1, amt: 1 });
+    F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.72, y: paddock.y + paddock.h * 0.2, sz: 1, stone: 100 });
+    F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.3, y: paddock.y + paddock.h * 0.18, sz: 0.9, stone: 100 });
   }
   function makeTractor() { return { x: paddock.x + 50, y: paddock.y + 50, tx: 0, ty: 0, facing: 1, zoom: 0 }; }
   function rebuildDogs() { dogs.length = 0; for (const k of Object.keys(DOGS)) if (F.dogs[k]) dogs.push(makeDog(DOGS[k].kind)); }
@@ -144,6 +165,7 @@
   function houseWoolBonus() { return (F.house.level - 1) * 0.06; }
   function houseIncome() { return (F.house.level - 1) * 0.006; }
   function eraName() { return ERAS[Math.min(F.farmLevel - 1, ERAS.length - 1)]; }
+  function shearValue(s) { return Math.max(1, Math.round((5 + s.size * 4 + s.health / 30) * BREEDS[s.breed].mult * techWoolMult())); }
 
   // ---------- pens / gates ----------
   function gateWidth(p) { const side = (p.gateSide === 2 || p.gateSide === 3) ? p.h : p.w; return clamp(Math.min(72, side * 0.55), 34, Math.max(20, side - 10)); }
@@ -153,32 +175,34 @@
     const edge = (side, ax, ay, bx, by, along) => { if (side === p.gateSide && p.gateOpen) { if (along === 'x') { w.push([ax, ay, cx - g, ay]); w.push([cx + g, by, bx, by]); } else { w.push([ax, ay, ax, cy - g]); w.push([bx, cy + g, bx, by]); } } else { w.push([ax, ay, bx, by]); } };
     edge(1, x0, y0, x1, y0, 'x'); edge(0, x0, y1, x1, y1, 'x'); edge(2, x0, y0, x0, y1, 'y'); edge(3, x1, y0, x1, y1, 'y'); return w;
   }
-  function repelFromPens(e, buffer) { if (!F.pens) return; for (const p of F.pens) for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } }
+  function repelFromPens(e, buffer, stoneOnly) { if (!F.pens) return; for (const p of F.pens) { if (stoneOnly && !p.stone) continue; for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } } }
   const penInside = (p, x, y) => x > p.x - 4 && x < p.x + p.w + 4 && y > p.y - 4 && y < p.y + p.h + 4;
   const penInsideStrict = (p, x, y) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h;
   function insideAnyPen(x, y) { for (const p of F.pens) if (penInsideStrict(p, x, y)) return p; return null; }
   function penCorners(p) { return [{ k: 'nw', x: p.x, y: p.y }, { k: 'ne', x: p.x + p.w, y: p.y }, { k: 'sw', x: p.x, y: p.y + p.h }, { k: 'se', x: p.x + p.w, y: p.y + p.h }]; }
-  const penTick = (p) => ({ x: p.x + p.w / 2 - 24, y: p.y - 22 });
-  const penScrap = (p) => ({ x: p.x + p.w / 2 + 24, y: p.y - 22 });
+  const penTick = (p) => ({ x: p.x + p.w / 2 - 30, y: p.y - 22 });
+  const penScrap = (p) => ({ x: p.x + p.w / 2 + 30, y: p.y - 22 });
+  const penStoneBtn = (p) => ({ x: p.x + p.w / 2, y: p.y - 22 });
   function flockCentroid() { if (!sheep.length) return { x: paddock.x + paddock.w / 2, y: paddock.y + paddock.h / 2 }; let cx = 0, cy = 0; for (const s of sheep) { cx += s.x; cy += s.y; } return { x: cx / sheep.length, y: cy / sheep.length }; }
   function nearestOpenPen() { const c = flockCentroid(); let best = null, bd = 1e9; for (const p of F.pens) { if (!p.gateOpen) continue; const g = gateCenter(p); const d = dist(c.x, c.y, g.x, g.y); if (d < bd) { bd = d; best = p; } } return best; }
 
-  // ---------- persistence + offline ----------
+  // ---------- persistence ----------
   function load() { try { const r = localStorage.getItem(SAVE_KEY); if (!r) return defaultSave(); return Object.assign(defaultSave(), JSON.parse(r)); } catch (e) { return defaultSave(); } }
   function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age })); try { localStorage.setItem(SAVE_KEY, JSON.stringify(F)); } catch (e) {} }
 
   function startGame() {
     F = load(); layout();
     if (typeof F.energy !== 'number') F.energy = F.power === 'electric' ? 3 : F.power === 'economical' ? 1 : 0;
-    if (typeof F.wood !== 'number') F.wood = 25;
-    if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = [];
+    if (typeof F.wood !== 'number') F.wood = 25; if (typeof F.stone !== 'number') F.stone = 0;
+    if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
     if (!F.troughs) { F.troughs = defaultTroughs(); layout(); }
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
     if (!F.plants) initPlants();
-    for (const pl of F.plants) if (pl.type === 'tree' && pl.wood == null) pl.wood = 100;
+    if (!F.plants.some(p => p.type === 'rock')) { F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.72, y: paddock.y + paddock.h * 0.2, sz: 1, stone: 100 }); }
+    for (const pl of F.plants) { if (pl.type === 'tree' && pl.wood == null) pl.wood = 100; if (pl.type === 'rock' && pl.stone == null) pl.stone = 100; }
     for (const t of [F.troughs.feed, F.troughs.water]) { const b = fieldBounds(t.y); t.x = clamp(t.x, b.left, b.right); t.y = clamp(t.y, paddock.y + 26, paddock.y + paddock.h - 20); }
-    for (const p of F.pens) { if (!p._init) { p.x = paddock.x + paddock.w / 2 - p.w / 2; p.y = paddock.y + paddock.h * 0.5 - p.h / 2; p._init = true; } if (p.gateSide == null) p.gateSide = 0; }
+    for (const p of F.pens) { if (!p._init) { p.x = paddock.x + paddock.w / 2 - p.w / 2; p.y = paddock.y + paddock.h * 0.5 - p.h / 2; p._init = true; } if (p.gateSide == null) p.gateSide = 0; if (p.stone == null) p.stone = false; }
     sheep.length = 0; for (const sd of (F.sheep || [])) sheep.push(makeSheep(sd));
     while (sheep.length < 3) sheep.push(makeSheep({ role: rollRole() }));
     rebuildDogs(); rebuildWorkers(); initGrass();
@@ -190,8 +214,7 @@
     const el = clamp((nowMs() - (F.lastTime || nowMs())) / 1000, 0, 8 * 3600); if (el < 30) return;
     const fed = F.feed > 5, watered = F.water > 5, rate = 0.22 * (fed ? 1 : 0.4) * (watered ? 1 : 0.6) * (1 + dogBonus() + houseWoolBonus());
     let grew = 0; for (const s of sheep) { if (s.role === 'lamb') continue; const add = Math.min(rate * el, 100 - s.wool); s.wool += add; grew += add; }
-    F.feed = clamp(F.feed - el * 0.03, 0, 100); F.water = clamp(F.water - el * 0.03, 0, 100);
-    F.money += houseIncome() * el * 0.6;
+    F.feed = clamp(F.feed - el * 0.03, 0, 100); F.water = clamp(F.water - el * 0.03, 0, 100); F.money += houseIncome() * el * 0.6;
     if (grew > 5) setTimeout(() => toast('🧺 Your flock grew wool while you were away!'), 400);
   }
 
@@ -203,10 +226,10 @@
   function onDown(e) {
     if (!running) return; e.preventDefault && e.preventDefault();
     const p = pt(e);
-    if (placing) { const wasB = !!placing.bkind; placing = null; if (wasB) { toast('🏗️ Built!'); sfx.build(); } else { selectedPen = F.pens[F.pens.length - 1]; toast('Pen dropped — drag corners to resize, ✓ / ✕'); sfx.pop(); } persist(); return; }
+    if (placing) { const wasB = !!placing.bkind; placing = null; if (wasB) { toast('🏗️ Built!'); sfx.build(); } else { selectedPen = F.pens[F.pens.length - 1]; toast('Pen dropped — resize corners · 🧱 stone · ✓ / ✕'); sfx.pop(); } persist(); return; }
 
     for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb' && dist(p.x, p.y, s.x, s.y - 6) < 30) {
-      if (insideAnyPen(s.x, s.y)) shearSheep(s); else { toast('🚧 Herd them into a pen to shear (or hire a Shepherd!)'); flashAlert('🚧 Pen them, or hire a Shepherd ✂️', '#ffb03a'); sfx.err(); }
+      if (insideAnyPen(s.x, s.y)) shearSheep(s); else { toast('🚧 Pen them, or hire a Shepherd ✂️'); flashAlert('🚧 Pen them, or hire a Shepherd ✂️', '#ffb03a'); sfx.err(); }
       return;
     }
     for (const pen of F.pens) if (nearGate(pen, p.x, p.y)) { pen.gateOpen = !pen.gateOpen; toast(pen.gateOpen ? 'Gate opened' : 'Gate closed'); sfx.pop(); persist(); return; }
@@ -214,18 +237,18 @@
     if (selectedPen) {
       const sp = selectedPen;
       const tk = penTick(sp); if (dist(p.x, p.y, tk.x, tk.y) < 16) { selectedPen = null; toast('Pen saved'); sfx.pop(); persist(); return; }
-      const sc = penScrap(sp); if (dist(p.x, p.y, sc.x, sc.y) < 16) { scrapPen(sp); return; }
+      const scr = penScrap(sp); if (dist(p.x, p.y, scr.x, scr.y) < 16) { scrapPen(sp); return; }
+      if (!sp.stone) { const st = penStoneBtn(sp); if (dist(p.x, p.y, st.x, st.y) < 16) { upgradePenStone(sp); return; } }
       for (const c of penCorners(sp)) if (dist(p.x, p.y, c.x, c.y) < 18) { drag = { type: 'resize', ref: sp, corner: c.k }; return; }
       const side = wallMidHit(sp, p.x, p.y); if (side >= 0 && side !== sp.gateSide) { sp.gateSide = side; toast('Gate moved'); sfx.pop(); persist(); return; }
       if (penInside(sp, p.x, p.y)) { drag = { type: 'pen', ref: sp, ox: p.x - sp.x, oy: p.y - sp.y }; return; }
       selectedPen = null; return;
     }
 
-    // tap a worker → cycle its job
-    for (const w of workers) { const s = dscale(w.y); if (dist(p.x, p.y, w.x, w.y - 8) < 16 * s) { w.job = JOBS[(JOBS.indexOf(w.job) + 1) % JOBS.length]; const wf = F.workers.find(x => x._live === w); syncWorkerJobs(); toast(WORKER[w.job].emoji + ' Now a ' + WORKER[w.job].name); sfx.pop(); persist(); return; } }
+    for (const w of workers) { const s = dscale(w.y); if (dist(p.x, p.y, w.x, w.y - 8) < 16 * s) { w.job = JOBS[(JOBS.indexOf(w.job) + 1) % JOBS.length]; syncWorkerJobs(); toast(WORKER[w.job].emoji + ' Now a ' + WORKER[w.job].name); sfx.pop(); persist(); return; } }
 
     for (const t of [feedTrough, waterTrough]) { const s = dscale(t.y); if (dist(p.x, p.y, t.x, t.y) < 24 * s) { drag = { type: 'trough', ref: t, ox: p.x - t.x, oy: p.y - t.y }; return; } }
-    for (const pen of F.pens) if (penInside(pen, p.x, p.y)) { selectedPen = pen; toast('Editing pen — drag corners to resize · ✓ keep · ✕ scrap'); sfx.pop(); return; }
+    for (const pen of F.pens) if (penInside(pen, p.x, p.y)) { selectedPen = pen; toast('Editing pen — resize corners · 🧱 stone · ✓ keep · ✕ scrap'); sfx.pop(); return; }
 
     herdGoal = null; herdTo(p.x, p.y);
   }
@@ -260,12 +283,9 @@
     else { const c = flockCentroid(); herdGoal = null; herdTo(c.x, c.y); toast(F.pens.length ? '🐾 Gathered! Open a gate to pen them.' : '🐾 Woofa gathers the flock!'); }
     sfx.woof();
   }
-  function shearSheep(s) {
-    const val = Math.max(1, Math.round((5 + s.size * 4 + s.health / 30) * BREEDS[s.breed].mult));
-    F.wool += val; s.wool = 0; s.baaT = 40; s.heartT = 30; spawnFluff(s.x, s.y); pop(s.x, s.y - 14, '+' + val + ' 🧺', '#fff5c8'); sfx.shear();
-    toast('✂️ +' + val + ' wool' + (s.breed !== 'normal' ? ' (' + BREEDS[s.breed].name + '!)' : '')); persist(); updateHud();
-  }
-  function scrapPen(p) { const i = F.pens.indexOf(p); if (i < 0) return; F.pens.splice(i, 1); if (herdGoal && herdGoal.pen === p) herdGoal = null; selectedPen = null; F.money += 40; toast('🗑️ Pen scrapped (+$40)'); pop(p.x + p.w / 2, p.y, '🗑️', '#ff8a3d'); sfx.pop(); persist(); updateHud(); }
+  function shearSheep(s) { const val = shearValue(s); F.wool += val; s.wool = 0; s.baaT = 40; s.heartT = 30; spawnFluff(s.x, s.y); pop(s.x, s.y - 14, '+' + val + ' 🧺', '#fff5c8'); sfx.shear(); toast('✂️ +' + val + ' wool' + (s.breed !== 'normal' ? ' (' + BREEDS[s.breed].name + '!)' : '')); persist(); updateHud(); }
+  function scrapPen(p) { const i = F.pens.indexOf(p); if (i < 0) return; F.pens.splice(i, 1); if (herdGoal && herdGoal.pen === p) herdGoal = null; selectedPen = null; F.money += 40; if (p.stone) F.stone += 12; toast('🗑️ Pen scrapped (+$40)'); pop(p.x + p.w / 2, p.y, '🗑️', '#ff8a3d'); sfx.pop(); persist(); updateHud(); }
+  function upgradePenStone(p) { const c = stonePenCost(); if (F.stone < c) { toast('Need 🪨' + c + ' stone to build stone walls'); sfx.err(); return; } F.stone -= c; p.stone = true; toast('🧱 Stone walls up! Predators can\'t get in (close the gate).'); confetti(p.x + p.w / 2, p.y, ['🧱', '🛡️']); sfx.build(); persist(); updateHud(); }
 
   // ---------- update ----------
   function update(dt) {
@@ -278,19 +298,19 @@
     else if (e === 3) { if (F.money > 0) { F.feed = clamp(F.feed + 0.18 * dt, 0, 100); F.water = clamp(F.water + 0.18 * dt, 0, 100); F.money = Math.max(0, F.money - 0.06 * dt); } }
     if (F.house.level > 1) F.money += houseIncome() * dt;
 
-    // buildings
     for (const b of F.buildings) {
       if (b.bkind === 'market') { b.cd = (b.cd || 0) - dt; if (b.cd <= 0 && F.wool >= 1) { const amt = Math.min(F.wool, 4); F.wool -= amt; const got = Math.floor(amt * woolPrice()); F.money += got; b.cd = 70; pop(b.x, b.y - 14, '+$' + got, '#ffd23d'); } }
-      else if (b.bkind === 'tower') { for (const fx of foxes) if (!fx.dead && dist(b.x, b.y, fx.x, fx.y) < 140) fx.fleeing = true; }
+      else if (b.bkind === 'tower') { for (const fx of preds) if (!fx.dead && !fx.wolf && dist(b.x, b.y, fx.x, fx.y) < 140) fx.fleeing = true; }
       else if (b.bkind === 'well') { F.water = clamp(F.water + 0.05 * dt, 0, 92); }
       else if (b.bkind === 'haybarn') { F.feed = clamp(F.feed + 0.04 * dt, 0, 88); }
     }
 
     if (herdGoal) { herdGoal.t -= dt; if (herdGoal.t <= 0 || F.pens.indexOf(herdGoal.pen) < 0) herdGoal = null; }
+    const needM = techNeedMult();
 
     for (let i = sheep.length - 1; i >= 0; i--) {
       const s = sheep[i];
-      s.hunger = clamp(s.hunger + 0.015 * dt, 0, 100); s.thirst = clamp(s.thirst + 0.018 * dt, 0, 100);
+      s.hunger = clamp(s.hunger + 0.015 * needM * dt, 0, 100); s.thirst = clamp(s.thirst + 0.018 * needM * dt, 0, 100);
       s.health = clamp(100 - Math.max(0, s.hunger - 62) * 1.3 - Math.max(0, s.thirst - 62) * 1.3, 0, 100);
       if (s.hunger >= 100 || s.thirst >= 100) s.starve += dt; else s.starve = Math.max(0, s.starve - dt * 0.5);
       if (s.starve > 480) { sheep.splice(i, 1); toast('💀 A sheep died! Keep them fed and watered.'); pop(s.x, s.y, '💀', '#ff6a6a', true); sfx.err(); persist(); updateHud(); continue; }
@@ -305,7 +325,7 @@
       if (s.baaT > 0) s.baaT -= dt; if (s.heartT > 0) s.heartT -= dt; s.breedCD -= dt;
 
       s.moveT -= dt; let fleeing = false;
-      for (const fx of foxes) if (!fx.dead && dist(s.x, s.y, fx.x, fx.y) < 84) { const a = Math.atan2(s.y - fx.y, s.x - fx.x); s.tx = s.x + Math.cos(a) * 130; s.ty = s.y + Math.sin(a) * 130; s.moveT = 20; fleeing = true; }
+      for (const fx of preds) if (!fx.dead && dist(s.x, s.y, fx.x, fx.y) < (fx.wolf ? 96 : 84)) { const a = Math.atan2(s.y - fx.y, s.x - fx.x); s.tx = s.x + Math.cos(a) * 140; s.ty = s.y + Math.sin(a) * 140; s.moveT = 20; fleeing = true; }
       if (tractor && dist(s.x, s.y, tractor.x, tractor.y) < 78) { const a = Math.atan2(s.y - tractor.y, s.x - tractor.x); s.tx = s.x + Math.cos(a) * 120; s.ty = s.y + Math.sin(a) * 120; s.moveT = 24; fleeing = true; }
       for (const d of dogs) if (dist(s.x, s.y, d.x, d.y) < 50) { const a = Math.atan2(s.y - d.y, s.x - d.x); s.tx = s.x + Math.cos(a) * 62; s.ty = s.y + Math.sin(a) * 62; s.moveT = Math.max(s.moveT, 12); fleeing = true; }
 
@@ -331,8 +351,9 @@
       for (const gr of grass) if (gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 14) { s.hunger = clamp(s.hunger - 0.03 * dt, 0, 100); gr.amt = clamp(gr.amt - 0.03 * dt, 0, 1); break; }
       for (const pl of F.plants) if (pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 18) { s.hunger = clamp(s.hunger - 0.05 * dt, 0, 100); pl.amt = clamp(pl.amt - 0.02 * dt, 0, 1); break; }
     }
-    for (const gr of grass) gr.amt = clamp(gr.amt + 0.00035 * dt, 0, 1);
-    for (const pl of F.plants) { if (pl.type === 'bush') pl.amt = clamp((pl.amt == null ? 1 : pl.amt) + 0.0005 * dt, 0, 1); if (pl.type === 'tree') pl.wood = clamp((pl.wood == null ? 100 : pl.wood) + 0.012 * dt, 0, 100); }
+    const gRegrow = techGrass();
+    for (const gr of grass) gr.amt = clamp(gr.amt + 0.00035 * gRegrow * dt, 0, 1);
+    for (const pl of F.plants) { if (pl.type === 'bush') pl.amt = clamp((pl.amt == null ? 1 : pl.amt) + 0.0005 * gRegrow * dt, 0, 1); if (pl.type === 'tree') pl.wood = clamp((pl.wood == null ? 100 : pl.wood) + 0.012 * dt, 0, 100); if (pl.type === 'rock') pl.stone = clamp((pl.stone == null ? 100 : pl.stone) + 0.008 * dt, 0, 100); }
 
     updateWorkers(dt);
 
@@ -343,36 +364,40 @@
       if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(1600, 2600); sheep.push(makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' })); toast('💕 A lamb was born!'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
     }
 
-    foxTimer -= dt;
-    if (foxTimer <= 0 && sheep.length > 0 && foxes.length < 3 && !F._nofox) {
-      foxTimer = rand(2600, 4400) / (1 + (F.farmLevel - 1) * 0.3);
-      const spawnFoxAt = (left) => foxes.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false, dead: false, facing: 1 });
-      const left = Math.random() < 0.5; spawnFoxAt(left); flashAlert('🦊 FOX!', '#ff6a3a'); sfx.fox();
-      if (Math.random() < 0.13 + (F.farmLevel - 1) * 0.03 && foxes.length < 3) { spawnFoxAt(!left); flashAlert('🦊🦊 DOUBLE FOX RAID!', '#ff4d4d', true); toast('🦊🦊 Double fox raid!'); }
+    predTimer -= dt;
+    if (predTimer <= 0 && sheep.length > 0 && preds.length < 4 && !F._nofox) {
+      predTimer = rand(2600, 4400) / (1 + (F.farmLevel - 1) * 0.3);
+      const wolfChance = F.farmLevel >= 2 ? 0.22 + (F.farmLevel - 2) * 0.06 : 0;
+      const spawn = (left, wolf) => preds.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false, dead: false, facing: 1, wolf: !!wolf });
+      const left = Math.random() < 0.5;
+      if (Math.random() < wolfChance) { spawn(left, true); flashAlert('🐺 WOLF!', '#c94a3a', true); toast('🐺 A wolf is on the prowl!'); sfx.wolf(); if (Math.random() < 0.3 && preds.length < 4) spawn(!left, true); }
+      else { spawn(left, false); flashAlert('🦊 FOX!', '#ff6a3a'); sfx.fox(); if (Math.random() < 0.13 + (F.farmLevel - 1) * 0.03 && preds.length < 4) { spawn(!left, false); flashAlert('🦊🦊 DOUBLE FOX RAID!', '#ff4d4d', true); } }
     }
-    for (let i = foxes.length - 1; i >= 0; i--) {
-      const fx = foxes[i];
-      if (fx.dead) { fx.x += fx.vx * dt; fx.y += fx.vy * dt; fx.vy += 0.12 * dt; fx.spin += 0.35 * dt; fx.tumble += dt; if (fx.x < -60 || fx.x > W + 60 || fx.y > H + 80 || fx.tumble > 130) foxes.splice(i, 1); continue; }
-      let chased = false; for (const d of dogs) if (dist(d.x, d.y, fx.x, fx.y) < 95) chased = true; if (chased) fx.fleeing = true;
+    const dogRange = techDogRange();
+    for (let i = preds.length - 1; i >= 0; i--) {
+      const fx = preds[i];
+      if (fx.dead) { fx.x += fx.vx * dt; fx.y += fx.vy * dt; fx.vy += 0.12 * dt; fx.spin += 0.35 * dt; fx.tumble += dt; if (fx.x < -60 || fx.x > W + 60 || fx.y > H + 80 || fx.tumble > 130) preds.splice(i, 1); continue; }
+      let chased = false; for (const d of dogs) if (dist(d.x, d.y, fx.x, fx.y) < (fx.wolf ? 80 : 95) * dogRange) chased = true; if (chased) fx.fleeing = true;
       let tx, ty;
       if (fx.fleeing) { tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x - 40 : paddock.x + paddock.w + 40; ty = fx.y; }
-      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast('🦊 A fox took a sheep! Get more guard dogs.'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } fx.fleeing = true; } } else { fx.fleeing = true; tx = fx.x; ty = fx.y; } }
-      const a = Math.atan2(ty - fx.y, tx - fx.x), sp = fx.fleeing ? 3.0 : 1.5;
+      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast((fx.wolf ? '🐺 A wolf' : '🦊 A fox') + ' took a sheep! Guard them!'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } fx.fleeing = true; } } else { fx.fleeing = true; tx = fx.x; ty = fx.y; } }
+      const a = Math.atan2(ty - fx.y, tx - fx.x), sp = fx.fleeing ? (fx.wolf ? 3.4 : 3.0) : (fx.wolf ? 2.1 : 1.5);
       fx.x += Math.cos(a) * sp * dt; fx.y += Math.sin(a) * sp * dt; fx.facing = Math.cos(a) >= 0 ? 1 : -1;
-      if (fx.fleeing && (fx.x < paddock.x - 30 || fx.x > paddock.x + paddock.w + 30)) foxes.splice(i, 1);
+      repelFromPens(fx, 12, true);  // stone pens are predator-proof
+      if (fx.fleeing && (fx.x < paddock.x - 30 || fx.x > paddock.x + paddock.w + 30)) preds.splice(i, 1);
     }
 
     const busy = new Set();
-    for (const fx of foxes) { if (fx.dead) continue; let best = null, bd = 1e9; for (const d of dogs) { if (busy.has(d)) continue; const dd = dist(d.x, d.y, fx.x, fx.y); if (dd < bd) { bd = dd; best = d; } } if (best) { busy.add(best); best._fx = fx; } }
+    for (const fx of preds) { if (fx.dead) continue; let best = null, bd = 1e9; for (const d of dogs) { if (busy.has(d)) continue; const dd = dist(d.x, d.y, fx.x, fx.y); if (dd < bd) { bd = dd; best = d; } } if (best) { busy.add(best); best._fx = fx; } }
     const fc = flockCentroid(), cx = fc.x, cy = fc.y;
     for (const d of dogs) {
       d.moveT -= dt; if (d.zoom > 0) d.zoom -= 0.01 * dt;
       const chasing = busy.has(d) && d._fx && !d._fx.dead;
-      if (chasing) { d.tx = d._fx.x; d.ty = d._fx.y; d.zoom = Math.max(d.zoom, 0.7); if (dist(d.x, d.y, d._fx.x, d._fx.y) < 18) catchFox(d._fx, d); }
+      if (chasing) { d.tx = d._fx.x; d.ty = d._fx.y; d.zoom = Math.max(d.zoom, 0.7); if (dist(d.x, d.y, d._fx.x, d._fx.y) < 18 * dogRange) catchPredator(d._fx, d); }
       else if (herdGoal && sheep.length) { const g = gateCenter(herdGoal.pen); const a = Math.atan2(cy - g.y, cx - g.x); d.tx = cx + Math.cos(a) * 46; d.ty = cy + Math.sin(a) * 46; }
       else if (sheep.length) { let stray = null, sd = -1; for (const s of sheep) { const dd = dist(s.x, s.y, cx, cy); if (dd > sd) { sd = dd; stray = s; } } if (stray && sd > 52) { const a = Math.atan2(stray.y - cy, stray.x - cx); d.tx = stray.x + Math.cos(a) * 40; d.ty = stray.y + Math.sin(a) * 40; } else { d.orbit += 0.03 * dt; d.tx = cx + Math.cos(d.orbit) * 80; d.ty = cy + Math.sin(d.orbit) * 80; } }
       else if (d.moveT <= 0) { d.tx = rand(paddock.x + 40, paddock.x + paddock.w - 40); d.ty = rand(paddock.y + 30, paddock.y + paddock.h - 30); d.moveT = rand(60, 160); }
-      const sp = chasing ? 3.6 : 1.6, a = Math.atan2(d.ty - d.y, d.tx - d.x);
+      const sp = chasing ? 3.7 : 1.6, a = Math.atan2(d.ty - d.y, d.tx - d.x);
       if (dist(d.x, d.y, d.tx, d.ty) > 5) { d.x += Math.cos(a) * sp * dt; d.y += Math.sin(a) * sp * dt; d.facing = Math.cos(a) >= 0 ? 1 : -1; }
     }
     if (tractor) { if (tractor.zoom > 0) tractor.zoom -= 0.006 * dt; if (tractor.tx || tractor.ty) { const a = Math.atan2(tractor.ty - tractor.y, tractor.tx - tractor.x); if (dist(tractor.x, tractor.y, tractor.tx, tractor.ty) > 6) { tractor.x = clamp(tractor.x + Math.cos(a) * 2.2 * dt, paddock.x + 16, paddock.x + paddock.w - 16); tractor.y = clamp(tractor.y + Math.sin(a) * 2.2 * dt, paddock.y + 16, paddock.y + paddock.h - 16); tractor.facing = Math.cos(a) >= 0 ? 1 : -1; } } }
@@ -394,29 +419,35 @@
   // ---------- workers ----------
   function idleNear(w, x, y) { if (w.moveT <= 0) { w.tx = x + rand(-30, 30); w.ty = y + rand(-14, 24); w.moveT = rand(50, 130); } }
   function updateWorkers(dt) {
+    const spd = 1.5 * techWorkerSpeed(), cdMul = 1 / techWorkerSpeed();
     for (const w of workers) {
       w.cd -= dt; w.moveT -= dt;
       if (w.job === 'shear') {
         let tgt = null, bd = 1e9; for (const s of sheep) if (s.role !== 'lamb' && s.wool >= 100) { const d = dist(w.x, w.y, s.x, s.y); if (d < bd) { bd = d; tgt = s; } }
-        if (tgt) { w.tx = tgt.x; w.ty = tgt.y + 4; if (bd < 15 && w.cd <= 0) { const val = Math.max(1, Math.round((5 + tgt.size * 4 + tgt.health / 30) * BREEDS[tgt.breed].mult)); F.wool += val; tgt.wool = 0; tgt.baaT = 40; tgt.heartT = 24; spawnFluff(tgt.x, tgt.y); pop(tgt.x, tgt.y - 12, '+' + val + '🧺', '#fff5c8'); sfx.shear(); w.cd = 45; updateHud(); } }
+        if (tgt) { w.tx = tgt.x; w.ty = tgt.y + 4; if (bd < 15 && w.cd <= 0) { const val = shearValue(tgt); F.wool += val; tgt.wool = 0; tgt.baaT = 40; tgt.heartT = 24; spawnFluff(tgt.x, tgt.y); pop(tgt.x, tgt.y - 12, '+' + val + '🧺', '#fff5c8'); sfx.shear(); w.cd = 45 * cdMul; updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       } else if (w.job === 'haul') {
         const feedLow = F.feed <= F.water; const t = feedLow ? feedTrough : waterTrough; const lvl = feedLow ? F.feed : F.water;
-        if (lvl < 82) { w.tx = t.x; w.ty = t.y - 6; if (dist(w.x, w.y, t.x, t.y) < 20 && w.cd <= 0) { const cost = feedLow ? 2 : 1; if (F.money >= cost) { F.money -= cost; if (feedLow) F.feed = clamp(F.feed + 7, 0, 100); else F.water = clamp(F.water + 8, 0, 100); w.cd = 34; pop(t.x, t.y - 14, feedLow ? '🌾' : '💧', '#fff'); updateHud(); } else { w.cd = 60; } } }
+        if (lvl < 82) { w.tx = t.x; w.ty = t.y - 6; if (dist(w.x, w.y, t.x, t.y) < 20 && w.cd <= 0) { const cost = feedLow ? 2 : 1; if (F.money >= cost) { F.money -= cost; if (feedLow) F.feed = clamp(F.feed + 7, 0, 100); else F.water = clamp(F.water + 8, 0, 100); w.cd = 34 * cdMul; pop(t.x, t.y - 14, feedLow ? '🌾' : '💧', '#fff'); updateHud(); } else { w.cd = 60; } } }
         else idleNear(w, feedTrough.x, feedTrough.y - 20);
       } else if (w.job === 'wood') {
         let tgt = null, bd = 1e9; for (const pl of F.plants) if (pl.type === 'tree' && (pl.wood == null ? 100 : pl.wood) > 14) { const d = dist(w.x, w.y, pl.x, pl.y); if (d < bd) { bd = d; tgt = pl; } }
-        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.wood = clamp(tgt.wood - 9, 0, 100); F.wood += 3; w.cd = 30; pop(tgt.x, tgt.y - 22, '🪵', '#caa06a'); sfx.chop(); updateHud(); } }
+        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.wood = clamp(tgt.wood - 9, 0, 100); F.wood += 3; w.cd = 30 * cdMul; pop(tgt.x, tgt.y - 22, '🪵', '#caa06a'); sfx.chop(); updateHud(); } }
+        else idleNear(w, house.x + 30, house.y + 40);
+      } else if (w.job === 'mine') {
+        let tgt = null, bd = 1e9; for (const pl of F.plants) if (pl.type === 'rock' && (pl.stone == null ? 100 : pl.stone) > 12) { const d = dist(w.x, w.y, pl.x, pl.y); if (d < bd) { bd = d; tgt = pl; } }
+        if (tgt) { w.tx = tgt.x + 10; w.ty = tgt.y + 6; if (bd < 20 && w.cd <= 0) { tgt.stone = clamp(tgt.stone - 8, 0, 100); F.stone += 2; w.cd = 34 * cdMul; pop(tgt.x, tgt.y - 20, '🪨', '#b8bcc2'); sfx.mine(); updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       }
-      const sp = 1.5, a = Math.atan2(w.ty - w.y, w.tx - w.x);
-      if (dist(w.x, w.y, w.tx, w.ty) > 4) { w.y = clamp(w.y + Math.sin(a) * sp * dt, paddock.y + 20, paddock.y + paddock.h - 18); const b = fieldBounds(w.y); w.x = clamp(w.x + Math.cos(a) * sp * dt, b.left, b.right); w.facing = Math.cos(a) >= 0 ? 1 : -1; w.step += dt; }
+      const a = Math.atan2(w.ty - w.y, w.tx - w.x);
+      if (dist(w.x, w.y, w.tx, w.ty) > 4) { w.y = clamp(w.y + Math.sin(a) * spd * dt, paddock.y + 20, paddock.y + paddock.h - 18); const b = fieldBounds(w.y); w.x = clamp(w.x + Math.cos(a) * spd * dt, b.left, b.right); w.facing = Math.cos(a) >= 0 ? 1 : -1; w.step += dt; }
     }
   }
 
-  function catchFox(fx, d) {
+  function catchPredator(fx, d) {
     if (fx.dead) return; fx.dead = true; d.zoom = 1;
-    if (Math.random() < 0.45) { const dir = fx.x < W / 2 ? 1 : -1; fx.vx = dir * rand(6, 10); fx.vy = rand(-9, -6); fx.spin = rand(0.3, 0.6); fx.tumble = 0; flashAlert('🦊 FOX TERMINATED! 💥', '#ffd23d', true); toast('💥 FOX TERMINATED!'); pop(fx.x, fx.y - 10, '💥', '#ffd23d', true); confetti(fx.x, fx.y, ['💥', '⭐', '🦴']); sfx.boom(); }
+    const wolf = fx.wolf;
+    if (Math.random() < (wolf ? 0.55 : 0.45)) { const dir = fx.x < W / 2 ? 1 : -1; fx.vx = dir * rand(6, 11); fx.vy = rand(-10, -6); fx.spin = rand(0.3, 0.6); fx.tumble = 0; flashAlert((wolf ? '🐺 WOLF' : '🦊 FOX') + ' TERMINATED! 💥', '#ffd23d', true); toast('💥 ' + (wolf ? 'WOLF' : 'FOX') + ' TERMINATED!'); pop(fx.x, fx.y - 10, '💥', '#ffd23d', true); confetti(fx.x, fx.y, ['💥', '⭐', '🦴']); sfx.boom(); }
     else { const dir = fx.x < W / 2 ? -1 : 1; fx.vx = dir * rand(4, 6); fx.vy = rand(-3, -1); fx.spin = rand(-0.2, 0.2); fx.tumble = 60; pop(fx.x, fx.y - 8, '💨', '#cfd8e6'); sfx.pop(); }
   }
 
@@ -452,15 +483,16 @@
     actors.push({ y: house.y + 30, d: () => drawHouse(house) });
     for (const b of F.buildings) actors.push({ y: b.y + b.h, d: () => drawBuilding(b) });
     for (const s of sheep) actors.push({ y: s.y, d: () => drawSheep(s) });
-    for (const fx of foxes) actors.push({ y: fx.dead ? -9999 : fx.y, d: () => drawFox(fx) });
+    for (const fx of preds) actors.push({ y: fx.dead ? -9999 : fx.y, d: () => drawPredator(fx) });
     for (const d of dogs) actors.push({ y: d.y, d: () => drawDog(d) });
     for (const w of workers) actors.push({ y: w.y, d: () => drawWorker(w) });
-    for (const pl of F.plants) if (pl.type === 'tree') actors.push({ y: pl.y, d: () => drawTree(pl) });
+    for (const pl of F.plants) if (pl.type === 'tree') actors.push({ y: pl.y, d: () => drawTree(pl) }); else if (pl.type === 'rock') actors.push({ y: pl.y, d: () => drawRock(pl) });
     if (tractor) actors.push({ y: tractor.y, d: () => drawTractor(tractor) });
     actors.sort((a, b) => a.y - b.y); for (const a of actors) a.d();
 
     for (const p of fluff) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.font = '900 ' + p.sz + 'px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = p.col; ctx.fillText(p.txt, 0, 0); ctx.restore(); } ctx.globalAlpha = 1;
+    drawMinimap();
     drawAlerts();
   }
 
@@ -469,24 +501,47 @@
     for (const al of alerts) { const flash = 0.45 + 0.55 * Math.abs(Math.sin(tick / 6)); ctx.globalAlpha = clamp(al.t, 0, 1) * (0.5 + flash * 0.5); const fs = al.big ? 26 : 19; ctx.font = '900 ' + fs + 'px system-ui, sans-serif'; const w = ctx.measureText(al.msg).width + 26; ctx.fillStyle = 'rgba(11,18,32,0.7)'; roundRect(W / 2 - w / 2, yy - fs * 0.7, w, fs * 1.4, 10); ctx.fill(); ctx.fillStyle = al.col; ctx.fillText(al.msg, W / 2, yy); yy += fs * 1.7; }
     ctx.globalAlpha = 1;
   }
+  function drawMinimap() {
+    const mw = 92, mh = 60, mx = W - mw - 10, my = paddock.y - mh - 6;
+    if (my < 4) return;
+    ctx.globalAlpha = 0.9; ctx.fillStyle = 'rgba(11,18,32,0.7)'; roundRect(mx - 4, my - 4, mw + 8, mh + 8, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; roundRect(mx - 4, my - 4, mw + 8, mh + 8, 8); ctx.stroke();
+    ctx.fillStyle = '#2f6a34'; ctx.fillRect(mx, my, mw, mh);
+    const sx = (x) => mx + (x - paddock.x) / paddock.w * mw, sy = (y) => my + (y - paddock.y) / paddock.h * mh;
+    for (const p of F.pens) { ctx.strokeStyle = p.stone ? '#c8ccd0' : '#caa06a'; ctx.lineWidth = 1; ctx.strokeRect(sx(p.x), sy(p.y), p.w / paddock.w * mw, p.h / paddock.h * mh); }
+    ctx.fillStyle = '#8a6a3a'; for (const b of F.buildings) ctx.fillRect(sx(b.x), sy(b.y), 3, 3);
+    ctx.fillStyle = '#e0c060'; ctx.fillRect(sx(house.x), sy(house.y + 20), 4, 4);
+    ctx.fillStyle = '#f4f3ee'; for (const s of sheep) { ctx.beginPath(); ctx.arc(sx(s.x), sy(s.y), 1.3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#3a6ea5'; for (const w of workers) { ctx.beginPath(); ctx.arc(sx(w.x), sy(w.y), 1.4, 0, 7); ctx.fill(); }
+    for (const fx of preds) { if (fx.dead) continue; ctx.fillStyle = fx.wolf ? '#c94a3a' : '#ff8a3d'; ctx.beginPath(); ctx.arc(sx(fx.x), sy(fx.y), 1.8, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#1a1a1e'; for (const d of dogs) { ctx.beginPath(); ctx.arc(sx(d.x), sy(d.y), 1.5, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
 
   function shadow(x, y, r) { ctx.globalAlpha = 0.2; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.32, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
   function shadowLocal(x, y, r) { ctx.globalAlpha = 0.18; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.32, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
   function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
   function drawPen(p, sel) {
-    ctx.fillStyle = sel ? 'rgba(88,224,138,0.10)' : 'rgba(255,255,255,0.05)'; ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.strokeStyle = sel ? '#58e08a' : '#8a6a3a'; ctx.lineWidth = sel ? 3.5 : 3;
-    ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
-    ctx.fillStyle = '#6a4f28'; for (let px = p.x; px <= p.x + p.w; px += 30) { ctx.fillRect(px - 1.5, p.y - 4, 3, 8); ctx.fillRect(px - 1.5, p.y + p.h - 4, 3, 8); }
+    ctx.fillStyle = sel ? 'rgba(88,224,138,0.10)' : p.stone ? 'rgba(200,205,210,0.06)' : 'rgba(255,255,255,0.05)'; ctx.fillRect(p.x, p.y, p.w, p.h);
+    if (p.stone) {
+      ctx.strokeStyle = sel ? '#58e08a' : '#b8bcc2'; ctx.lineWidth = sel ? 4 : 5; ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
+      ctx.strokeStyle = 'rgba(90,90,95,0.5)'; ctx.lineWidth = 1; ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
+      ctx.fillStyle = '#9aa0a6'; for (const c of penCorners(p)) { ctx.fillRect(c.x - 3, c.y - 3, 6, 6); }
+    } else {
+      ctx.strokeStyle = sel ? '#58e08a' : '#8a6a3a'; ctx.lineWidth = sel ? 3.5 : 3; ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
+      ctx.fillStyle = '#6a4f28'; for (let px = p.x; px <= p.x + p.w; px += 30) { ctx.fillRect(px - 1.5, p.y - 4, 3, 8); ctx.fillRect(px - 1.5, p.y + p.h - 4, 3, 8); }
+    }
     const gc = gateCenter(p); ctx.fillStyle = p.gateOpen ? '#58e08a' : '#c86a3a'; ctx.beginPath(); ctx.arc(gc.x, gc.y, 6, 0, 7); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText(p.gateOpen ? 'gate' : 'shut', gc.x, gc.y + (p.gateSide === 1 ? -10 : 14));
+    if (p.stone) { ctx.fillStyle = 'rgba(200,205,210,0.9)'; ctx.font = '700 9px system-ui'; ctx.fillText('🛡️ stone', p.x + 20, p.y + 12); }
     if (sel) {
       ctx.fillStyle = '#58e08a'; for (const c of penCorners(p)) { roundRect(c.x - 6, c.y - 6, 12, 12, 3); ctx.fill(); }
-      const tk = penTick(p), sc = penScrap(p);
+      const tk = penTick(p), scr = penScrap(p);
       ctx.fillStyle = '#2fbf6a'; ctx.beginPath(); ctx.arc(tk.x, tk.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 17px system-ui'; ctx.fillText('✓', tk.x, tk.y + 6);
-      ctx.fillStyle = '#d94a3a'; ctx.beginPath(); ctx.arc(sc.x, sc.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 16px system-ui'; ctx.fillText('✕', sc.x, sc.y + 5);
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('drag ▢ to resize · tap a wall to move gate', p.x + p.w / 2, p.y + p.h + 16);
+      ctx.fillStyle = '#d94a3a'; ctx.beginPath(); ctx.arc(scr.x, scr.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 16px system-ui'; ctx.fillText('✕', scr.x, scr.y + 5);
+      if (!p.stone) { const st = penStoneBtn(p); ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.arc(st.x, st.y, 15, 0, 7); ctx.fill(); ctx.font = '14px system-ui'; ctx.fillText('🧱', st.x, st.y + 5); }
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('drag ▢ resize · 🧱 stone (fox-proof) · move gate: tap a wall', p.x + p.w / 2, p.y + p.h + 16);
     }
   }
   function drawTrough(t, col, level, ic) { const sc = dscale(t.y); ctx.save(); ctx.translate(t.x, t.y); ctx.scale(sc, sc); ctx.fillStyle = '#7a5a3a'; roundRect(-22, -8, 44, 16, 4); ctx.fill(); ctx.fillStyle = col; roundRect(-19, -6 + (12 - level / 100 * 12), 38, level / 100 * 12, 3); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; roundRect(-22, -8, 44, 16, 4); ctx.stroke(); ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.fillText(ic, 0, -12); ctx.restore(); }
@@ -497,6 +552,14 @@
     ctx.fillStyle = '#7a5230'; ctx.fillRect(-4, -12, 8, 20);
     if (wood > 20) { ctx.fillStyle = '#2f7a38'; for (const c of [[0, -30, 18], [-12, -22, 13], [12, -22, 13], [0, -18, 15]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } ctx.fillStyle = '#3f9a45'; for (const c of [[-6, -30, 8], [7, -26, 8], [0, -34, 8]]) { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 7); ctx.fill(); } }
     else { ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.ellipse(0, 8, 7, 3, 0, 0, 7); ctx.fill(); ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-3, -8); ctx.lineTo(-7, -16); ctx.moveTo(3, -8); ctx.lineTo(8, -14); ctx.stroke(); }
+    ctx.restore();
+  }
+  function drawRock(r) {
+    const stone = r.stone == null ? 100 : r.stone, sc = dscale(r.y) * (r.sz || 1) * (0.6 + stone / 250); ctx.save(); ctx.translate(r.x, r.y); ctx.scale(sc, sc); shadowLocal(0, 4, 14);
+    ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.moveTo(-12, 6); ctx.lineTo(-8, -6); ctx.lineTo(2, -10); ctx.lineTo(11, -3); ctx.lineTo(9, 6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#a8adb3'; ctx.beginPath(); ctx.moveTo(-8, -6); ctx.lineTo(2, -10); ctx.lineTo(0, -2); ctx.lineTo(-6, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#6a6f76'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-4, 4); ctx.lineTo(2, -2); ctx.stroke();
+    if (stone < 25) { ctx.fillStyle = 'rgba(120,120,128,0.6)'; ctx.beginPath(); ctx.arc(6, 6, 2, 0, 7); ctx.arc(-6, 7, 1.6, 0, 7); ctx.fill(); }
     ctx.restore();
   }
   function drawEnergy() {
@@ -523,42 +586,23 @@
   function drawBuilding(b) {
     const sc = dscale(b.y + b.h), x = b.x, y = b.y, w = b.w, h = b.h;
     shadow(x + w / 2, y + h + 2, w * 0.5);
-    if (b.bkind === 'market') {
-      ctx.fillStyle = '#caa06a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16);
-      for (let i = 0; i < 5; i++) { ctx.fillStyle = i % 2 ? '#e0556a' : '#f4f3ee'; ctx.beginPath(); ctx.moveTo(x + 2 + i * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 1) * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 0.5) * (w - 4) / 5, y + 18); ctx.closePath(); ctx.fill(); }   // awning
-      ctx.fillStyle = '#8a6a3a'; ctx.fillRect(x + 4, y + 6, w - 8, 4);
-      ctx.font = (14 * sc + 8) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🧺', x + w / 2, y + h - 4);
-    } else if (b.bkind === 'tower') {
-      ctx.fillStyle = '#9a8a6a'; ctx.fillRect(x + 2, y + 14, w - 4, h - 14);
-      ctx.fillStyle = '#7a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 2 + i * (w - 4) / 3, y + 8, (w - 6) / 3, 8);   // battlements
-      ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x + w / 2 - 3, y + h - 12, 6, 12);
-      ctx.strokeStyle = '#c94a3a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w / 2, y + 8); ctx.lineTo(x + w / 2, y - 6); ctx.stroke(); ctx.fillStyle = '#c94a3a'; ctx.beginPath(); ctx.moveTo(x + w / 2, y - 6); ctx.lineTo(x + w / 2 + 10, y - 3); ctx.lineTo(x + w / 2, y); ctx.closePath(); ctx.fill();
-    } else if (b.bkind === 'well') {
-      ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.45, 6, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#3ba7e0'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.3, 4, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + 6, y + h - 8); ctx.lineTo(x + 8, y); ctx.moveTo(x + w - 6, y + h - 8); ctx.lineTo(x + w - 8, y); ctx.stroke();
-      ctx.fillStyle = '#8a4030'; ctx.beginPath(); ctx.moveTo(x + 2, y + 2); ctx.lineTo(x + w / 2, y - 8); ctx.lineTo(x + w - 2, y + 2); ctx.closePath(); ctx.fill();
-    } else if (b.bkind === 'haybarn') {
-      ctx.fillStyle = '#b04a3a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); ctx.fillStyle = '#7a2f28'; ctx.beginPath(); ctx.moveTo(x, y + 18); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 18); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#e0c060'; ctx.fillRect(x + 8, y + h - 12, 10, 10); ctx.fillRect(x + w - 18, y + h - 12, 10, 10);
-      ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🌾', x + w / 2, y + h - 2);
-    }
+    if (b.bkind === 'market') { ctx.fillStyle = '#caa06a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); for (let i = 0; i < 5; i++) { ctx.fillStyle = i % 2 ? '#e0556a' : '#f4f3ee'; ctx.beginPath(); ctx.moveTo(x + 2 + i * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 1) * (w - 4) / 5, y + 8); ctx.lineTo(x + 2 + (i + 0.5) * (w - 4) / 5, y + 18); ctx.closePath(); ctx.fill(); } ctx.fillStyle = '#8a6a3a'; ctx.fillRect(x + 4, y + 6, w - 8, 4); ctx.font = (14 * sc + 8) + 'px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🧺', x + w / 2, y + h - 4); }
+    else if (b.bkind === 'tower') { ctx.fillStyle = '#9a8a6a'; ctx.fillRect(x + 2, y + 14, w - 4, h - 14); ctx.fillStyle = '#7a6a4a'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 2 + i * (w - 4) / 3, y + 8, (w - 6) / 3, 8); ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x + w / 2 - 3, y + h - 12, 6, 12); ctx.strokeStyle = '#c94a3a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + w / 2, y + 8); ctx.lineTo(x + w / 2, y - 6); ctx.stroke(); ctx.fillStyle = '#c94a3a'; ctx.beginPath(); ctx.moveTo(x + w / 2, y - 6); ctx.lineTo(x + w / 2 + 10, y - 3); ctx.lineTo(x + w / 2, y); ctx.closePath(); ctx.fill(); }
+    else if (b.bkind === 'bunk') { ctx.fillStyle = '#8a5a3a'; ctx.fillRect(x + 4, y + 14, w - 8, h - 14); ctx.fillStyle = '#6a4028'; ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 16); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3a2a1a'; ctx.fillRect(x + w / 2 - 5, y + h - 14, 10, 14); ctx.fillStyle = '#bfe6ff'; ctx.fillRect(x + 8, y + 20, 7, 7); ctx.fillRect(x + w - 15, y + 20, 7, 7); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🛏️', x + w / 2, y + h - 3); }
+    else if (b.bkind === 'well') { ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.45, 6, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#3ba7e0'; ctx.beginPath(); ctx.ellipse(x + w / 2, y + h - 6, w * 0.3, 4, 0, 0, 7); ctx.fill(); ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x + 6, y + h - 8); ctx.lineTo(x + 8, y); ctx.moveTo(x + w - 6, y + h - 8); ctx.lineTo(x + w - 8, y); ctx.stroke(); ctx.fillStyle = '#8a4030'; ctx.beginPath(); ctx.moveTo(x + 2, y + 2); ctx.lineTo(x + w / 2, y - 8); ctx.lineTo(x + w - 2, y + 2); ctx.closePath(); ctx.fill(); }
+    else if (b.bkind === 'haybarn') { ctx.fillStyle = '#b04a3a'; ctx.fillRect(x + 4, y + 16, w - 8, h - 16); ctx.fillStyle = '#7a2f28'; ctx.beginPath(); ctx.moveTo(x, y + 18); ctx.lineTo(x + w / 2, y + 2); ctx.lineTo(x + w, y + 18); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#e0c060'; ctx.fillRect(x + 8, y + h - 12, 10, 10); ctx.fillRect(x + w - 18, y + h - 12, 10, 10); ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🌾', x + w / 2, y + h - 2); }
   }
   function drawWorker(w) {
     const sc = dscale(w.y), f = w.facing || 1, col = WORKER[w.job].col, bob = Math.abs(Math.sin(w.step / 6)) * 2;
     ctx.save(); ctx.translate(w.x, w.y - bob); ctx.scale(sc, sc); shadowLocal(0, 8 + bob, 8);
-    // legs
     ctx.strokeStyle = '#3a2f28'; ctx.lineWidth = 2.4; const lg = Math.sin(w.step / 5) * 2.5; ctx.beginPath(); ctx.moveTo(-2, 5); ctx.lineTo(-2 + lg, 11); ctx.moveTo(2, 5); ctx.lineTo(2 - lg, 11); ctx.stroke();
-    // body (overalls)
     ctx.fillStyle = col; roundRect(-5, -4, 10, 10, 3); ctx.fill();
-    // head
     ctx.fillStyle = '#e8c9a0'; ctx.beginPath(); ctx.arc(0, -8, 4.2, 0, 7); ctx.fill();
-    // straw hat
     ctx.fillStyle = '#e0c060'; ctx.beginPath(); ctx.ellipse(0, -10, 6, 2.2, 0, 0, 7); ctx.fill(); ctx.beginPath(); ctx.arc(0, -11.5, 3, Math.PI, 0); ctx.fill();
-    // tool by job
-    ctx.strokeStyle = '#5a4a3a'; ctx.lineWidth = 1.6;
-    if (w.job === 'wood') { ctx.strokeStyle = '#8a5a34'; ctx.beginPath(); ctx.moveTo(6 * f, 2); ctx.lineTo(9 * f, -6); ctx.stroke(); ctx.fillStyle = '#c8ccd0'; ctx.beginPath(); ctx.moveTo(9 * f, -6); ctx.lineTo(12 * f, -8); ctx.lineTo(10 * f, -3); ctx.closePath(); ctx.fill(); }
-    else if (w.job === 'haul') { ctx.fillStyle = '#8a8f96'; ctx.fillRect(5 * f, 0, 5, 5); ctx.strokeStyle = '#6a6f76'; ctx.beginPath(); ctx.arc(7.5 * f, 0, 2.5, Math.PI, 0); ctx.stroke(); }
-    else { ctx.strokeStyle = '#c8ccd0'; ctx.beginPath(); ctx.moveTo(6 * f, 0); ctx.lineTo(10 * f, -3); ctx.moveTo(6 * f, 2); ctx.lineTo(10 * f, -1); ctx.stroke(); }
+    if (w.job === 'wood') { ctx.strokeStyle = '#8a5a34'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6 * f, 2); ctx.lineTo(9 * f, -6); ctx.stroke(); ctx.fillStyle = '#c8ccd0'; ctx.beginPath(); ctx.moveTo(9 * f, -6); ctx.lineTo(12 * f, -8); ctx.lineTo(10 * f, -3); ctx.closePath(); ctx.fill(); }
+    else if (w.job === 'mine') { ctx.strokeStyle = '#6a4a34'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6 * f, 2); ctx.lineTo(9 * f, -6); ctx.stroke(); ctx.strokeStyle = '#c8ccd0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(6 * f, -7); ctx.lineTo(12 * f, -5); ctx.stroke(); }
+    else if (w.job === 'haul') { ctx.fillStyle = '#8a8f96'; ctx.fillRect(5 * f, 0, 5, 5); ctx.strokeStyle = '#6a6f76'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(7.5 * f, 0, 2.5, Math.PI, 0); ctx.stroke(); }
+    else { ctx.strokeStyle = '#c8ccd0'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6 * f, 0); ctx.lineTo(10 * f, -3); ctx.moveTo(6 * f, 2); ctx.lineTo(10 * f, -1); ctx.stroke(); }
     ctx.restore();
   }
   function drawSheep(s) {
@@ -586,13 +630,22 @@
     if (s.baaT > 0) { ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '700 11px system-ui'; ctx.fillText('baa!', s.x + fluffR, s.y + bob - fluffR); }
     if (s.health < 40) { ctx.font = '13px system-ui'; ctx.fillText(s.hunger > s.thirst ? '🌾' : '💧', s.x, s.y - fluffR - 10); }
   }
-  function drawFox(fx) {
-    const sc = dscale(fx.y), f = fx.facing || 1; ctx.save(); ctx.translate(fx.x, fx.y); if (fx.dead) ctx.rotate(fx.spin ? (fx.spin * (fx.tumble || 0)) : 0); ctx.scale(f * sc, sc); if (!fx.dead) shadowLocal(0, 7, 12);
-    ctx.fillStyle = '#d9662e'; ctx.beginPath(); ctx.ellipse(0, 0, 13, 6, 0, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(-11, -2); ctx.lineTo(-20, -6); ctx.lineTo(-11, 3); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-20, -6); ctx.lineTo(-17, -4); ctx.lineTo(-19, -2); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#d9662e'; ctx.beginPath(); ctx.arc(11, -2, 5, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(9, -6); ctx.lineTo(11, -12); ctx.lineTo(13, -6); ctx.fill(); ctx.beginPath(); ctx.moveTo(12, -6); ctx.lineTo(14, -11); ctx.lineTo(16, -5); ctx.fill();
-    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(16, -2, 1.3, 0, 7); ctx.fill();
-    if (fx.dead) { ctx.fillStyle = '#111'; ctx.font = '900 6px system-ui'; ctx.textAlign = 'center'; ctx.fillText('x', 15, -3); } ctx.restore();
+  function drawPredator(fx) {
+    const wolf = fx.wolf, sc = dscale(fx.y) * (wolf ? 1.3 : 1), f = fx.facing || 1; ctx.save(); ctx.translate(fx.x, fx.y); if (fx.dead) ctx.rotate(fx.spin ? (fx.spin * (fx.tumble || 0)) : 0); ctx.scale(f * sc, sc); if (!fx.dead) shadowLocal(0, 7, wolf ? 15 : 12);
+    if (wolf) {
+      ctx.fillStyle = '#6a6f76'; ctx.beginPath(); ctx.ellipse(0, 0, 15, 7, 0, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-13, -2); ctx.lineTo(-22, -8); ctx.lineTo(-13, 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5a5f66'; ctx.beginPath(); ctx.arc(13, -3, 6, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(10, -8); ctx.lineTo(12, -15); ctx.lineTo(15, -8); ctx.fill(); ctx.beginPath(); ctx.moveTo(14, -8); ctx.lineTo(16, -14); ctx.lineTo(18, -7); ctx.fill();
+      ctx.fillStyle = '#3a3f46'; ctx.beginPath(); ctx.arc(19, -2, 1.6, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffd23d'; ctx.beginPath(); ctx.arc(16, -4, 1.3, 0, 7); ctx.fill();
+    } else {
+      ctx.fillStyle = '#d9662e'; ctx.beginPath(); ctx.ellipse(0, 0, 13, 6, 0, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(-11, -2); ctx.lineTo(-20, -6); ctx.lineTo(-11, 3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-20, -6); ctx.lineTo(-17, -4); ctx.lineTo(-19, -2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#d9662e'; ctx.beginPath(); ctx.arc(11, -2, 5, 0, 7); ctx.fill(); ctx.beginPath(); ctx.moveTo(9, -6); ctx.lineTo(11, -12); ctx.lineTo(13, -6); ctx.fill(); ctx.beginPath(); ctx.moveTo(12, -6); ctx.lineTo(14, -11); ctx.lineTo(16, -5); ctx.fill();
+      ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(16, -2, 1.3, 0, 7); ctx.fill();
+    }
+    if (fx.dead) { ctx.fillStyle = '#111'; ctx.font = '900 6px system-ui'; ctx.textAlign = 'center'; ctx.fillText('x', wolf ? 17 : 15, -3); } ctx.restore();
   }
   function drawDog(d) {
     const sc = dscale(d.y), f = d.facing || 1; ctx.save(); ctx.translate(d.x, d.y); ctx.scale(f * sc, sc); shadowLocal(0, 8, 12);
@@ -605,12 +658,13 @@
 
   // ---------- HUD + actions ----------
   const el = (id) => document.getElementById(id);
-  function woolPrice() { return 3 + (F.farmLevel - 1) * 2; }
+  function woolPrice() { return (3 + (F.farmLevel - 1) * 2) * techSellMult(); }
   function setBar(fillId, pctId, v) { const f = el(fillId); if (f) f.style.width = v + '%'; const p = el(pctId); if (p) p.textContent = Math.round(v) + '%'; }
   function updateHud() {
     if (!F) return;
     el('fMoney').textContent = '💰 ' + Math.floor(F.money); el('fWool').textContent = '🧺 ' + Math.floor(F.wool);
-    el('fWood').textContent = '🪵 ' + Math.floor(F.wood); el('fSheep').textContent = '🐑 ' + sheep.length + '/' + F.sheepCap;
+    el('fWood').textContent = '🪵 ' + Math.floor(F.wood); el('fStone').textContent = '🪨 ' + Math.floor(F.stone);
+    el('fSheep').textContent = '🐑 ' + sheep.length + '/' + F.sheepCap;
     const era = eraName(); el('fLevel').textContent = era.ic + ' ' + era.name;
     setBar('foodFill', 'foodPct', F.feed); setBar('waterFill', 'waterPct', F.water);
     const fb = el('foodFill'); if (fb) fb.classList.toggle('low', F.feed < 20);
@@ -628,15 +682,16 @@
   function syncMute() { const b = el('btnSound'); if (b) b.textContent = F && F.muted ? '🔇' : '🔊'; }
   { const b = el('btnSound'); if (b) b.onclick = () => { F.muted = !F.muted; syncMute(); if (!F.muted) sfx.pop(); persist(); }; }
   { const b = el('btnHelp'); if (b) b.onclick = () => startTutorial(); }
+  { const b = el('btnResearch'); if (b) b.onclick = () => { if (running) openResearch(); }; }
 
   // ---------- tutorial ----------
   const TUT = [
-    { t: '👋 Welcome to Ewe Beauty Farming Co — build a sheep empire! Raise sheep, grow wool, hire a whole farm crew.' },
-    { t: '🌾 Tap FEED & 💧 WATER to fill the troughs (watch the gauges). Or hire a 🪣 Hauler in the shop to do it for you!' },
-    { t: '👷 In the 🛒 SHOP, hire Farmhands: ✂️ Shepherds shear sheep, 🪣 Haulers refill troughs, 🪓 Woodcutters chop trees into 🪵 wood. Tap a worker to change their job!' },
-    { t: '🏗️ Spend wood + coin to BUILD: a 🏪 Market auto-sells wool, a 🗼 Watchtower scares foxes, plus Wells & Hay Barns.' },
-    { t: '🐾 Tap the WOOFA button to herd the flock into the nearest open pen. Tap a pen to resize or scrap it.' },
-    { t: '🏡 Advance through ERAS to unlock better breeds & grow your land. Foxes raid — your dogs FLING them! Have fun! 🐑' },
+    { t: '👋 Welcome to Ewe Beauty Farming Co — build a sheep EMPIRE! Raise sheep, grow wool, run a whole farm crew.' },
+    { t: '🌾 Tap FEED & 💧 WATER to fill troughs (watch the gauges). Or hire a 🪣 Hauler to do it for you!' },
+    { t: '👷 In the 🛒 SHOP hire Farmhands: ✂️ Shepherd shears, 🪣 Hauler refills, 🪓 Woodcutter chops 🪵 wood, ⛏️ Miner digs 🪨 stone. Tap a worker to change their job!' },
+    { t: '🏗️ Spend wood + stone to BUILD a 🏪 Market, 🗼 Watchtower, 🛖 Bunkhouse, Wells & Barns. Upgrade a pen to 🧱 STONE and shut the gate — predators can\'t get in!' },
+    { t: '🔬 RESEARCH tech (top-right) for permanent boosts: sharper shears, hardy breeds, faster hands & more.' },
+    { t: '🐾 WOOFA button herds the flock into a pen. 🦊 Foxes AND 🐺 wolves raid — dogs FLING them! Advance ERAS to grow. Have fun! 🐑' },
   ];
   let tutIx = 0;
   function startTutorial() { tutIx = 0; showTut(); }
@@ -645,9 +700,30 @@
   function endTut() { const o = el('tutOverlay'); if (o) o.classList.add('hidden'); if (F) { F.tutorialDone = true; persist(); } }
   { const n = el('tutNext'); if (n) n.onclick = nextTut; const s = el('tutSkip'); if (s) s.onclick = endTut; }
 
+  // ---------- research overlay ----------
+  const researchScreen = el('researchScreen');
+  function openResearch() { renderResearch(); researchScreen.classList.remove('hidden'); }
+  function closeResearch() { researchScreen.classList.add('hidden'); }
+  { const b = el('researchClose'); if (b) b.onclick = closeResearch; }
+  function canAfford(t) { return F.money >= (t.coin || 0) && F.wood >= (t.wood || 0) && F.stone >= (t.stone || 0); }
+  function costLabel(t) { let s = '$' + t.coin; if (t.wood) s += ' 🪵' + t.wood; if (t.stone) s += ' 🪨' + t.stone; return s; }
+  function renderResearch() {
+    el('researchCoins').textContent = Math.floor(F.money);
+    const list = el('researchList'); list.innerHTML = '';
+    for (const k of Object.keys(TECH)) {
+      const t = TECH[k], owned = !!F.tech[k], can = canAfford(t);
+      const div = document.createElement('div'); div.className = 'shop-item' + (owned ? ' owned' : '');
+      const action = owned ? '<span class="si-tag equipped">✓ Done</span>' : '<button class="si-buy" ' + (can ? '' : 'disabled') + '>' + costLabel(t) + '</button>';
+      div.innerHTML = '<div class="si-emoji">' + t.emoji + '</div><div class="si-body"><div class="si-name">' + t.name + '</div><div class="si-desc">' + t.desc + '</div></div><div class="si-action">' + action + '</div>';
+      if (!owned && can) div.querySelector('.si-buy').onclick = () => { research(k); renderResearch(); updateHud(); };
+      list.appendChild(div);
+    }
+  }
+  function research(k) { const t = TECH[k]; if (F.tech[k] || !canAfford(t)) return; F.money -= t.coin || 0; F.wood -= t.wood || 0; F.stone -= t.stone || 0; F.tech[k] = true; toast('🔬 Researched ' + t.name + '!'); confetti(W / 2, H * 0.4, ['🔬', '✨', '⭐']); sfx.tech(); persist(); updateHud(); }
+
   // ---------- shop ----------
   const startScreen = el('startScreen'), shopScreen = el('shopScreen');
-  function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); }
+  function hideOverlays() { startScreen.classList.add('hidden'); shopScreen.classList.add('hidden'); if (researchScreen) researchScreen.classList.add('hidden'); }
   function openShop() { if (!F) return; renderShop(); shopScreen.classList.remove('hidden'); }
   function closeShop() { shopScreen.classList.add('hidden'); }
   function sheepCost(b) { return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
@@ -659,22 +735,20 @@
     el('shopMoney').textContent = Math.floor(F.money);
     const list = el('shopList'); list.innerHTML = ''; const rows = [];
     rows.push({ head: '🐑 Livestock' });
-    for (const b of ['normal', 'merino', 'golden', 'black']) {
-      const B = BREEDS[b], locked = F.farmLevel < B.lvl, full = sheep.length >= F.sheepCap, c = sheepCost(b);
-      rows.push({ emoji: b === 'black' ? '🖤' : b === 'golden' ? '⭐' : '🐑', name: 'Buy ' + B.name + ' Sheep', desc: locked ? 'Unlocks at farm Lv ' + B.lvl + '.' : (b === 'black' ? 'Priciest of all — wool sells for 6.5×.' : 'Wool value ×' + B.mult + '.'), act: locked ? { tag: 'Lv ' + B.lvl } : full ? { tag: 'Full' } : { label: '$' + c, fn: () => buySheep(b), afford: F.money >= c } });
-    }
+    for (const b of ['normal', 'merino', 'golden', 'black']) { const B = BREEDS[b], locked = F.farmLevel < B.lvl, full = sheep.length >= F.sheepCap, c = sheepCost(b); rows.push({ emoji: b === 'black' ? '🖤' : b === 'golden' ? '⭐' : '🐑', name: 'Buy ' + B.name + ' Sheep', desc: locked ? 'Unlocks at farm Lv ' + B.lvl + '.' : (b === 'black' ? 'Priciest — wool sells for 6.5×.' : 'Wool value ×' + B.mult + '.'), act: locked ? { tag: 'Lv ' + B.lvl } : full ? { tag: 'Full' } : { label: '$' + c, fn: () => buySheep(b), afford: F.money >= c } }); }
     rows.push({ head: '👷 Farmhands (' + workers.length + '/' + workerCap() + ')' });
     const capFull = workers.length >= workerCap(), wc = workerCost();
-    for (const j of JOBS) { const info = WORKER[j]; rows.push({ emoji: info.emoji, name: 'Hire ' + info.name, desc: info.desc + (capFull ? ' — worker cap reached (upgrade house/era).' : ''), act: capFull ? { tag: 'Full' } : { label: '$' + wc, fn: () => hireWorker(j), afford: F.money >= wc } }); }
+    for (const j of JOBS) { const info = WORKER[j]; rows.push({ emoji: info.emoji, name: 'Hire ' + info.name, desc: info.desc + (capFull ? ' — cap reached (build a 🛖 Bunkhouse!).' : ''), act: capFull ? { tag: 'Full' } : { label: '$' + wc, fn: () => hireWorker(j), afford: F.money >= wc } }); }
     rows.push({ head: '🏗️ Buildings' });
-    for (const k of Object.keys(BUILD)) { const bd = BUILD[k]; const can = F.money >= bd.coin && F.wood >= bd.wood; rows.push({ emoji: bd.emoji, name: 'Build ' + bd.name, desc: bd.desc + ' Costs 🪵' + bd.wood + '.', act: { label: '$' + bd.coin, fn: () => buyBuilding(k), afford: can } }); }
-    rows.push({ emoji: '🚧', name: 'Build a Pen', desc: 'Drops a pen — drag its corners to size it, tap a wall to move the gate, ✕ to scrap.', act: { label: '$' + PEN_COST, fn: buyPen, afford: F.money >= PEN_COST } });
-    rows.push({ head: '🌱 Land & Power' });
+    for (const k of Object.keys(BUILD)) { const bd = BUILD[k]; const can = F.money >= bd.coin && F.wood >= bd.wood && F.stone >= (bd.stone || 0); let cd = 'Costs 🪵' + bd.wood + (bd.stone ? ' 🪨' + bd.stone : ''); rows.push({ emoji: bd.emoji, name: 'Build ' + bd.name, desc: bd.desc + ' ' + cd + '.', act: { label: '$' + bd.coin, fn: () => buyBuilding(k), afford: can } }); }
+    rows.push({ emoji: '🚧', name: 'Build a Pen', desc: 'Drops a pen — resize corners, tap 🧱 to make it a fox-proof stone pen, ✕ to scrap.', act: { label: '$' + PEN_COST, fn: buyPen, afford: F.money >= PEN_COST } });
+    rows.push({ head: '🌱 Land, Power & Resources' });
     rows.push({ emoji: '🏠', name: 'Upgrade Farmhouse (Lv ' + F.house.level + ')', desc: F.house.level >= 5 ? 'Maxed! Passive coin, faster wool, +worker cap.' : 'Passive coin, faster wool, +1 worker cap, fancier house.', act: F.house.level >= 5 ? { tag: 'MAX' } : { label: '$' + houseCost(), fn: buyHouse, afford: F.money >= houseCost() } });
     const et = F.energy, next = ENERGY[et + 1];
     rows.push({ emoji: et >= 3 ? '⚡' : et === 2 ? '☀️' : et === 1 ? '🌬️' : '🔌', name: next ? 'Upgrade Energy → ' + next.short : 'Energy: Power Grid', desc: next ? next.desc + ' (now: ' + ENERGY[et].short + ')' : 'Top-tier energy.', act: next ? { label: '$' + next.cost, fn: buyEnergy, afford: F.money >= next.cost } : { tag: 'MAX' } });
     rows.push({ emoji: '🚜', name: 'Buy a Tractor', desc: F.upgrades.tractor ? 'Owned — tap the field to drive it.' : 'Tap the field to send it herding.', act: F.upgrades.tractor ? { tag: 'Owned' } : { label: '$650', fn: buyTractor, afford: F.money >= 650 } });
-    rows.push({ emoji: '🌳', name: 'Plant a Tree', desc: 'A leafy tree — prettier farm & more wood for Woodcutters.', act: { label: '$70', fn: plantTree, afford: F.money >= 70 } });
+    rows.push({ emoji: '🌳', name: 'Plant a Tree', desc: 'More 🪵 wood for Woodcutters, and prettier.', act: { label: '$70', fn: plantTree, afford: F.money >= 70 } });
+    rows.push({ emoji: '🪨', name: 'Haul in a Boulder', desc: 'A rock for Miners to dig 🪨 stone from.', act: { label: '$90', fn: addRock, afford: F.money >= 90 } });
     rows.push({ emoji: '🌿', name: 'Plant a Grazing Bush', desc: 'A lush bush the sheep nibble — free food that regrows.', act: { label: '$50', fn: plantBush, afford: F.money >= 50 } });
     const nextEra = ERAS[Math.min(F.farmLevel, ERAS.length - 1)];
     rows.push({ emoji: nextEra.ic, name: F.farmLevel >= ERAS.length ? 'Sheep Empire (max era)' : 'Advance to ' + nextEra.name, desc: 'Bigger land, +5 sheep cap, +worker cap, +wool price, a new tree.', act: F.farmLevel >= ERAS.length ? { tag: 'MAX' } : { label: '$' + expandCost(), fn: buyExpand, afford: F.money >= expandCost() } });
@@ -694,10 +768,11 @@
   function buyDog(k) { const d = DOGS[k]; if (F.money < d.cost || F.dogs[k]) return; F.money -= d.cost; F.dogs[k] = true; rebuildDogs(); toast('🐾 ' + d.name + ' joined the farm!'); confetti(W / 2, H * 0.4, ['🐾', '🎉']); sfx.up(); persist(); }
   function buyTractor() { if (F.money < 650 || F.upgrades.tractor) return; F.money -= 650; F.upgrades.tractor = true; tractor = makeTractor(); toast('🚜 Tractor delivered!'); sfx.up(); persist(); }
   function buyHouse() { const c = houseCost(); if (F.money < c || F.house.level >= 5) return; F.money -= c; F.house.level++; toast('🏠 Farmhouse upgraded to Lv ' + F.house.level + '! (+worker cap)'); confetti(house.x, house.y, ['🏠', '⭐', '✨']); sfx.up(); persist(); }
-  function buyPen() { if (F.money < PEN_COST) return; F.money -= PEN_COST; const pen = { x: paddock.x + paddock.w / 2 - 75, y: paddock.y + paddock.h / 2 - 60, w: 150, h: 118, gateOpen: true, gateSide: 0, _init: true }; F.pens.push(pen); placing = pen; closeShop(); toast('🚧 Drag into place, then tap to drop.'); persist(); }
-  function buyBuilding(k) { const bd = BUILD[k]; if (F.money < bd.coin || F.wood < bd.wood) return; F.money -= bd.coin; F.wood -= bd.wood; const b = { bkind: k, x: paddock.x + paddock.w / 2 - bd.w / 2, y: paddock.y + paddock.h * 0.4, w: bd.w, h: bd.h, cd: 0 }; F.buildings.push(b); placing = b; closeShop(); toast('🏗️ Place your ' + bd.name + ' — tap to drop.'); persist(); }
-  function hireWorker(j) { if (workers.length >= workerCap()) return toast('Worker cap reached — upgrade your house or era!'); const c = workerCost(); if (F.money < c) return; F.money -= c; const w = makeWorker(j); workers.push(w); syncWorkerJobs(); toast(WORKER[j].emoji + ' ' + WORKER[j].name + ' hired!'); confetti(house.x + 20, house.y + 30, ['👷', '🎉']); sfx.up(); persist(); }
+  function buyPen() { if (F.money < PEN_COST) return; F.money -= PEN_COST; const pen = { x: paddock.x + paddock.w / 2 - 75, y: paddock.y + paddock.h / 2 - 60, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: true }; F.pens.push(pen); placing = pen; closeShop(); toast('🚧 Drag into place, then tap to drop.'); persist(); }
+  function buyBuilding(k) { const bd = BUILD[k]; if (F.money < bd.coin || F.wood < bd.wood || F.stone < (bd.stone || 0)) return; F.money -= bd.coin; F.wood -= bd.wood; F.stone -= (bd.stone || 0); const b = { bkind: k, x: paddock.x + paddock.w / 2 - bd.w / 2, y: paddock.y + paddock.h * 0.4, w: bd.w, h: bd.h, cd: 0 }; F.buildings.push(b); placing = b; closeShop(); toast('🏗️ Place your ' + bd.name + ' — tap to drop.'); persist(); }
+  function hireWorker(j) { if (workers.length >= workerCap()) return toast('Worker cap reached — build a 🛖 Bunkhouse or upgrade your house!'); const c = workerCost(); if (F.money < c) return; F.money -= c; workers.push(makeWorker(j)); syncWorkerJobs(); toast(WORKER[j].emoji + ' ' + WORKER[j].name + ' hired!'); confetti(house.x + 20, house.y + 30, ['👷', '🎉']); sfx.up(); persist(); }
   function plantTree() { if (F.money < 70) return; F.money -= 70; F.plants.push({ type: 'tree', x: rand(paddock.x + 40, paddock.x + paddock.w - 40), y: paddock.y + rand(24, paddock.h * 0.5), sz: rand(0.85, 1.15), wood: 100 }); toast('🌳 Planted a tree!'); sfx.pop(); persist(); }
+  function addRock() { if (F.money < 90) return; F.money -= 90; const y = rand(paddock.y + paddock.h * 0.15, paddock.y + paddock.h * 0.5); const b = fieldBounds(y); F.plants.push({ type: 'rock', x: rand(b.left + 10, b.right - 10), y, sz: rand(0.9, 1.1), stone: 100 }); toast('🪨 A boulder was hauled in!'); sfx.pop(); persist(); }
   function plantBush() { if (F.money < 50) return; F.money -= 50; const y = rand(paddock.y + paddock.h * 0.35, paddock.y + paddock.h - 40); const b = fieldBounds(y); F.plants.push({ type: 'bush', x: rand(b.left + 10, b.right - 10), y, sz: 1, amt: 1 }); toast('🌿 Planted a grazing bush!'); sfx.pop(); persist(); }
 
   // ---------- loop ----------
@@ -709,22 +784,24 @@
   if (location.hash.indexOf('debug') !== -1) {
     window.__farm = {
       start: startGame, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, plants: F.plants.length, foxes: foxes.length, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, herding: !!herdGoal } : { running }; },
+      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length } : { running }; },
       lastErr() { return lastErr ? String(lastErr && lastErr.stack || lastErr) : null; },
-      give(m) { F.money += m; updateHud(); }, giveWood(w) { F.wood += w; updateHud(); }, feed: refillFeed, water: refillWater, sell: sellWool,
+      give(m) { F.money += m; updateHud(); }, giveWood(w) { F.wood += w; updateHud(); }, giveStone(s) { F.stone += s; updateHud(); }, feed: refillFeed, water: refillWater, sell: sellWool,
       forceWool() { for (const s of sheep) if (s.role !== 'lamb') s.wool = 100; }, shearAll() { for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb') { if (!insideAnyPen(s.x, s.y)) { s.x = F.pens[0] ? F.pens[0].x + F.pens[0].w / 2 : s.x; s.y = F.pens[0] ? F.pens[0].y + F.pens[0].h / 2 : s.y; } shearSheep(s); } },
-      spawnFox() { foxTimer = -5; }, pushFox() { foxes.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1 }); }, killFox() { if (foxes[0] && dogs[0]) catchFox(foxes[0], dogs[0]); },
-      noFox() { F._nofox = true; foxes.length = 0; }, foxOn() { F._nofox = false; },
+      spawnFox() { predTimer = -5; }, pushFox(wolf) { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: !!wolf }); }, pushWolf() { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: true }); }, killFox() { const t = preds.find(p => !p.dead); if (t && dogs[0]) catchPredator(t, dogs[0]); },
+      noFox() { F._nofox = true; preds.length = 0; }, foxOn() { F._nofox = false; },
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
       hire: hireWorker, fire() { if (workers.length) { workers.pop(); syncWorkerJobs(); } }, setJob(i, j) { if (workers[i]) { workers[i].job = j; syncWorkerJobs(); } },
-      buildKind: buyBuilding, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
-      penInfo() { return F.pens.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), w: Math.round(p.w), h: Math.round(p.h), gate: p.gateSide, open: p.gateOpen })); },
-      resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, setEnergy(n) { F.energy = n; },
+      research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
+      buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
+      penInfo() { return F.pens.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), w: Math.round(p.w), h: Math.round(p.h), gate: p.gateSide, open: p.gateOpen, stone: !!p.stone })); },
+      resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, stonePen(i) { if (F.pens[i]) upgradePenStone(F.pens[i]); }, closeGate(i) { if (F.pens[i]) F.pens[i].gateOpen = false; }, setEnergy(n) { F.energy = n; },
       sheepInPen(i) { const p = F.pens[i]; if (!p) return 0; return sheep.filter(s => penInsideStrict(p, s.x, s.y)).length; },
-      treeWood() { return F.plants.filter(p => p.type === 'tree').map(p => Math.round(p.wood)); },
-      tutorial: startTutorial,
+      treeWood() { return F.plants.filter(p => p.type === 'tree').map(p => Math.round(p.wood)); }, rockStone() { return F.plants.filter(p => p.type === 'rock').map(p => Math.round(p.stone)); },
+      putSheepIn(i) { const p = F.pens[i]; if (!p) return; for (const s of sheep) { s.x = p.x + p.w / 2 + rand(-p.w * 0.3, p.w * 0.3); s.y = p.y + p.h / 2 + rand(-p.h * 0.3, p.h * 0.3); } },
+      tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
       flockSpread() { if (sheep.length < 2) return 0; const c = flockCentroid(); let d = 0; for (const s of sheep) d += Math.hypot(s.x - c.x, s.y - c.y); return Math.round(d / sheep.length); },
-      dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length }; },
+      dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length, preds: preds.length }; },
     };
   }
 })();
