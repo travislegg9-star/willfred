@@ -34,8 +34,8 @@
   const BREEDS = {
     normal: { name: 'Woolly', mult: 1, cost: 55, wool: '#f4f3ee', lvl: 1 },
     merino: { name: 'Merino', mult: 1.9, cost: 240, wool: '#efe7d2', lvl: 2 },
-    golden: { name: 'Golden', mult: 4.2, cost: 1400, wool: '#ffd24a', lvl: 4 },
-    black: { name: 'Black', mult: 6.5, cost: 2800, wool: '#3a3640', lvl: 5 },
+    golden: { name: 'Golden', mult: 4.2, cost: 2400, wool: '#ffd24a', lvl: 4 },
+    black: { name: 'Black', mult: 6.5, cost: 4200, wool: '#3a3640', lvl: 5 },
   };
   const DOGS = {
     woofa: { name: 'Woofa', kind: 'woofa', cost: 0, bonus: 0.0, desc: 'Your loyal good boy. Herds the flock and chases off predators.' },
@@ -88,7 +88,7 @@
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
     dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
   });
-  const WIN_MONEY = 10000;   // amass this in the Sheep Empire era to win the Golden Fleece
+  const WIN_MONEY = 20000;   // amass this in the Sheep Empire era to win the Golden Fleece
 
   let F = null;
   const sheep = [], dogs = [], preds = [], fluff = [], grass = [], pops = [], workers = [], motes = [];
@@ -229,14 +229,40 @@
   function shearValue(s) { return Math.max(1, Math.round((5 + s.size * 4 + s.health / 30) * BREEDS[s.breed].mult * techWoolMult())); }
 
   // ---------- pens / gates ----------
-  function gateWidth(p) { const side = (p.gateSide === 2 || p.gateSide === 3) ? p.h : p.w; return clamp(Math.min(72, side * 0.55), 34, Math.max(20, side - 10)); }
-  function gateCenter(p) { switch (p.gateSide) { case 1: return { x: p.x + p.w / 2, y: p.y }; case 2: return { x: p.x, y: p.y + p.h / 2 }; case 3: return { x: p.x + p.w, y: p.y + p.h / 2 }; default: return { x: p.x + p.w / 2, y: p.y + p.h }; } }
+  const OPP = { 0: 1, 1: 0, 2: 3, 3: 2 };
+  function gateSides(p) { return p.doubleGate ? [p.gateSide, OPP[p.gateSide]] : [p.gateSide]; }
+  function gateWidth(p) { const side = (p.gateSide === 2 || p.gateSide === 3) ? p.h : p.w; return clamp(Math.min(90, side * 0.6), 46, Math.max(28, side - 8)); }   // wide, easy-to-flow gates
+  function gateCenterFor(p, side) { switch (side) { case 1: return { x: p.x + p.w / 2, y: p.y }; case 2: return { x: p.x, y: p.y + p.h / 2 }; case 3: return { x: p.x + p.w, y: p.y + p.h / 2 }; default: return { x: p.x + p.w / 2, y: p.y + p.h }; } }
+  function gateCenter(p) { return gateCenterFor(p, p.gateSide); }
+  function gateSideDir(side) { return side === 0 ? { x: 0, y: 1 } : side === 1 ? { x: 0, y: -1 } : side === 2 ? { x: -1, y: 0 } : { x: 1, y: 0 }; }   // outward normal
+  function gateApproach(p, side) { const g = gateCenterFor(p, side), d = gateSideDir(side); return { x: g.x + d.x * 36, y: g.y + d.y * 36 }; }
+  function gateCornersFor(p, side) { const m = 20; if (side === 0) return [{ x: p.x - m, y: p.y + p.h + m }, { x: p.x + p.w + m, y: p.y + p.h + m }]; if (side === 1) return [{ x: p.x - m, y: p.y - m }, { x: p.x + p.w + m, y: p.y - m }]; if (side === 2) return [{ x: p.x - m, y: p.y - m }, { x: p.x - m, y: p.y + p.h + m }]; return [{ x: p.x + p.w + m, y: p.y - m }, { x: p.x + p.w + m, y: p.y + p.h + m }]; }
+  // waypoint that draws an outside sheep to the nearest open gate: aim for the gate mouth once you're on
+  // its side, otherwise for the approach point just outside it (so the flock slides around to the opening)
+  function herdWaypoint(p, x, y) {
+    let best = null, bestD = 1e9;
+    for (const side of gateSides(p)) {
+      const g = gateCenterFor(p, side), d = gateSideDir(side), rel = (x - g.x) * d.x + (y - g.y) * d.y;
+      const w = rel > -6 ? g : gateApproach(p, side);
+      const dd = dist(x, y, w.x, w.y) + (rel > -6 ? 0 : 24);
+      if (dd < bestD) { bestD = dd; best = w; }
+    }
+    return best || gateCenter(p);
+  }
   function penWalls(p) {
     const g = gateWidth(p) / 2, x0 = p.x, y0 = p.y, x1 = p.x + p.w, y1 = p.y + p.h, cx = p.x + p.w / 2, cy = p.y + p.h / 2, w = [];
-    const edge = (side, ax, ay, bx, by, along) => { if (side === p.gateSide && p.gateOpen) { if (along === 'x') { w.push([ax, ay, cx - g, ay]); w.push([cx + g, by, bx, by]); } else { w.push([ax, ay, ax, cy - g]); w.push([bx, cy + g, bx, by]); } } else { w.push([ax, ay, bx, by]); } };
+    const open = p.gateOpen ? gateSides(p) : [];
+    const edge = (side, ax, ay, bx, by, along) => { if (open.indexOf(side) >= 0) { if (along === 'x') { w.push([ax, ay, cx - g, ay]); w.push([cx + g, by, bx, by]); } else { w.push([ax, ay, ax, cy - g]); w.push([bx, cy + g, bx, by]); } } else { w.push([ax, ay, bx, by]); } };
     edge(1, x0, y0, x1, y0, 'x'); edge(0, x0, y1, x1, y1, 'x'); edge(2, x0, y0, x0, y1, 'y'); edge(3, x1, y0, x1, y1, 'y'); return w;
   }
-  function repelFromPens(e, buffer, stoneOnly) { if (!F.pens) return; for (const p of F.pens) { if (stoneOnly && !p.stone) continue; for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } } }
+  // the clear corridor through an open gate — no wall-repel here so sheep flow straight through
+  function inGateZone(p, x, y) {
+    if (!p.gateOpen) return false;
+    const hw = gateWidth(p) / 2 + 6;
+    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); if (side === 0 || side === 1) { if (Math.abs(x - gc.x) < hw && Math.abs(y - gc.y) < 28) return true; } else { if (Math.abs(y - gc.y) < hw && Math.abs(x - gc.x) < 28) return true; } }
+    return false;
+  }
+  function repelFromPens(e, buffer, stoneOnly) { if (!F.pens) return; for (const p of F.pens) { if (stoneOnly && !p.stone) continue; if (inGateZone(p, e.x, e.y)) continue; for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } } }
   const penInside = (p, x, y) => x > p.x - 4 && x < p.x + p.w + 4 && y > p.y - 4 && y < p.y + p.h + 4;
   const penInsideStrict = (p, x, y) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h;
   function insideAnyPen(x, y) { for (const p of F.pens) if (penInsideStrict(p, x, y)) return p; return null; }
@@ -244,9 +270,10 @@
   // only lets a predator that has actually walked inside reach it
   function predShielded(s, fx) { for (const p of F.pens) { if (!p.stone || !penInside(p, s.x, s.y)) continue; if (!p.gateOpen) return true; if (!penInsideStrict(p, fx.x, fx.y)) return true; } return false; }
   function penCorners(p) { return [{ k: 'nw', x: p.x, y: p.y }, { k: 'ne', x: p.x + p.w, y: p.y }, { k: 'sw', x: p.x, y: p.y + p.h }, { k: 'se', x: p.x + p.w, y: p.y + p.h }]; }
-  const penTick = (p) => ({ x: p.x + p.w / 2 - 30, y: p.y - 22 });
-  const penScrap = (p) => ({ x: p.x + p.w / 2 + 30, y: p.y - 22 });
-  const penStoneBtn = (p) => ({ x: p.x + p.w / 2, y: p.y - 22 });
+  const penTick = (p) => ({ x: p.x + p.w / 2 - 48, y: p.y - 22 });
+  const penStoneBtn = (p) => ({ x: p.x + p.w / 2 - 16, y: p.y - 22 });
+  const penDoubleBtn = (p) => ({ x: p.x + p.w / 2 + 16, y: p.y - 22 });
+  const penScrap = (p) => ({ x: p.x + p.w / 2 + 48, y: p.y - 22 });
   const inBuilding = (b, x, y) => x > b.x && x < b.x + b.w && y > b.y - 14 && y < b.y + b.h;
   function buildingAt(x, y) { for (let i = F.buildings.length - 1; i >= 0; i--) if (inBuilding(F.buildings[i], x, y)) return F.buildings[i]; return null; }
   const bScrapBtn = (b) => ({ x: b.x + b.w, y: b.y - 8 });
@@ -290,7 +317,7 @@
 
   // ---------- input ----------
   function pt(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top + cam.y }; }
-  function nearGate(p, x, y) { const g = gateCenter(p); return dist(x, y, g.x, g.y) < gateWidth(p) / 2 + 8; }
+  function nearGate(p, x, y) { for (const side of gateSides(p)) { const g = gateCenterFor(p, side); if (dist(x, y, g.x, g.y) < gateWidth(p) / 2 + 8) return true; } return false; }
   function wallMidHit(p, x, y) { const mids = [{ s: 0, x: p.x + p.w / 2, y: p.y + p.h }, { s: 1, x: p.x + p.w / 2, y: p.y }, { s: 2, x: p.x, y: p.y + p.h / 2 }, { s: 3, x: p.x + p.w, y: p.y + p.h / 2 }]; for (const m of mids) if (dist(x, y, m.x, m.y) < 20) return m.s; return -1; }
 
   function onDown(e) {
@@ -309,6 +336,7 @@
       const tk = penTick(sp); if (dist(p.x, p.y, tk.x, tk.y) < 16) { selectedPen = null; toast('Pen saved'); sfx.pop(); persist(); return; }
       const scr = penScrap(sp); if (dist(p.x, p.y, scr.x, scr.y) < 16) { scrapPen(sp); return; }
       if (!sp.stone) { const st = penStoneBtn(sp); if (dist(p.x, p.y, st.x, st.y) < 16) { upgradePenStone(sp); return; } }
+      { const db = penDoubleBtn(sp); if (dist(p.x, p.y, db.x, db.y) < 16) { sp.doubleGate = !sp.doubleGate; toast(sp.doubleGate ? '⇄ Double gate — a second opening!' : 'Single gate'); sfx.pop(); persist(); return; } }
       for (const c of penCorners(sp)) if (dist(p.x, p.y, c.x, c.y) < 18) { drag = { type: 'resize', ref: sp, corner: c.k }; return; }
       const side = wallMidHit(sp, p.x, p.y); if (side >= 0 && side !== sp.gateSide) { sp.gateSide = side; toast('Gate moved'); sfx.pop(); persist(); return; }
       if (penInside(sp, p.x, p.y)) { drag = { type: 'pen', ref: sp, ox: p.x - sp.x, oy: p.y - sp.y }; return; }
@@ -406,7 +434,7 @@
     if (F.house.level > 1) F.money += houseIncome() * dt;
 
     for (const b of F.buildings) {
-      if (b.bkind === 'market') { b.cd = (b.cd || 0) - dt; if (b.cd <= 0 && F.wool >= 1) { const amt = Math.min(F.wool, 4); F.wool -= amt; const got = Math.floor(amt * woolPrice()); F.money += got; b.cd = 70; pop(b.x, b.y - 14, '+$' + got, '#ffd23d'); } }
+      if (b.bkind === 'market') { b.cd = (b.cd || 0) - dt; if (b.cd <= 0 && F.wool >= 1) { const amt = Math.min(F.wool, 4); F.wool -= amt; const got = Math.floor(amt * woolPrice()); F.money += got; b.cd = 105; pop(b.x, b.y - 14, '+$' + got, '#ffd23d'); } }
       else if (b.bkind === 'tower') { for (const fx of preds) if (!fx.dead && !fx.wolf && dist(b.x, b.y, fx.x, fx.y) < 140) fx.fleeing = true; }
       else if (b.bkind === 'well') { F.water = clamp(F.water + 0.05 * dt, 0, 92); }
       else if (b.bkind === 'haybarn') { F.feed = clamp(F.feed + 0.04 * dt, 0, 88); }
@@ -436,33 +464,47 @@
       if (s.role !== 'lamb') {
         const grazing = !snowing && (grass.some(gr => gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 15) || F.plants.some(pl => pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 20));
         const fed = F.feed > 0 || grazing, watered = F.water > 0;
-        const rate = 0.020 * (s.sick ? 0.15 : 1) * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
+        const rate = 0.015 * (s.sick ? 0.15 : 1) * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
         s.wool = clamp(s.wool + rate * dt, 0, 100);
         if (fed && s.size < 1) s.size = clamp(s.size + 0.00012 * dt, 0.85, 1);
       } else { s.age += dt; if (s.age > 900) { s.role = rollRole(); s.size = 0.85; toast('🐑 A lamb grew up!'); pop(s.x, s.y, '🐑', '#fff'); } }
       if (s.baaT > 0) s.baaT -= dt; if (s.heartT > 0) s.heartT -= dt; s.breedCD -= dt;
 
-      s.moveT -= dt; let fleeing = false;
-      for (const fx of preds) if (!fx.dead && dist(s.x, s.y, fx.x, fx.y) < (fx.wolf ? 96 : 84)) { const a = Math.atan2(s.y - fx.y, s.x - fx.x); s.tx = s.x + Math.cos(a) * 140; s.ty = s.y + Math.sin(a) * 140; s.moveT = 20; fleeing = true; }
-      if (tractor && dist(s.x, s.y, tractor.x, tractor.y) < 78) { const a = Math.atan2(s.y - tractor.y, s.x - tractor.x); s.tx = s.x + Math.cos(a) * 120; s.ty = s.y + Math.sin(a) * 120; s.moveT = 24; fleeing = true; }
-      for (const d of dogs) if (dist(s.x, s.y, d.x, d.y) < 50) { const a = Math.atan2(s.y - d.y, s.x - d.x); s.tx = s.x + Math.cos(a) * 62; s.ty = s.y + Math.sin(a) * 62; s.moveT = Math.max(s.moveT, 12); fleeing = true; }
+      s.moveT -= dt; let foxFlee = false;
+      for (const fx of preds) if (!fx.dead && dist(s.x, s.y, fx.x, fx.y) < (fx.wolf ? 96 : 84)) { const a = Math.atan2(s.y - fx.y, s.x - fx.x); s.tx = s.x + Math.cos(a) * 140; s.ty = s.y + Math.sin(a) * 140; s.moveT = 20; foxFlee = true; }
+      if (tractor && dist(s.x, s.y, tractor.x, tractor.y) < 78) { const a = Math.atan2(s.y - tractor.y, s.x - tractor.x); s.tx = s.x + Math.cos(a) * 120; s.ty = s.y + Math.sin(a) * 120; s.moveT = 24; foxFlee = true; }
+      // dogs only scatter/nudge the flock when NOT actively herding into a pen (so Woofa's escort doesn't cancel the lure)
+      let dogNudge = false;
+      if (!herdGoal) for (const d of dogs) if (dist(s.x, s.y, d.x, d.y) < 50) { const a = Math.atan2(s.y - d.y, s.x - d.x); s.tx = s.x + Math.cos(a) * 62; s.ty = s.y + Math.sin(a) * 62; s.moveT = Math.max(s.moveT, 12); dogNudge = true; }
+      const fleeing = foxFlee || dogNudge;
 
       let toPen = false;
-      if (herdGoal && !fleeing) { const pn = herdGoal.pen; toPen = true; if (penInsideStrict(pn, s.x, s.y)) { s.tx = pn.x + pn.w / 2 + rand(-pn.w * 0.3, pn.w * 0.3); s.ty = pn.y + pn.h / 2 + rand(-pn.h * 0.3, pn.h * 0.3); } else { const g = gateCenter(pn); s.tx = g.x; s.ty = g.y; } s.moveT = Math.max(s.moveT, 16); }
+      if (herdGoal && !foxFlee) {   // Woofa is walking them in — route around to the gate, then settle inside
+        const pn = herdGoal.pen; toPen = true;
+        if (penInsideStrict(pn, s.x, s.y)) { const d = gateSideDir(pn.gateSide); s.tx = pn.x + pn.w / 2 - d.x * pn.w * 0.3 + rand(-pn.w * 0.18, pn.w * 0.18); s.ty = pn.y + pn.h / 2 - d.y * pn.h * 0.3 + rand(-pn.h * 0.18, pn.h * 0.18); }   // pack toward the back, away from the gate
+        else { const wp = herdWaypoint(pn, s.x, s.y); s.tx = wp.x; s.ty = wp.y; }
+        s.moveT = Math.max(s.moveT, 16);
+      }
       if (!fleeing && !toPen && s.hunger > 42 && F.feed > 0) { s.tx = feedTrough.x + rand(-12, 12); s.ty = feedTrough.y - 10; s.moveT = Math.max(s.moveT, 18); }
       else if (!fleeing && !toPen && s.thirst > 42 && F.water > 0) { s.tx = waterTrough.x + rand(-12, 12); s.ty = waterTrough.y - 10; s.moveT = Math.max(s.moveT, 18); }
       else if (!fleeing && !toPen && s.moveT <= 0) { s.tx = rand(paddock.x + 30, paddock.x + paddock.w - 30); s.ty = rand(paddock.y + 30, paddock.y + paddock.h - 40); s.moveT = rand(60, 150); }
 
-      for (const pen of F.pens) { const inNow = penInsideStrict(pen, s.x, s.y), inTgt = penInsideStrict(pen, s.tx, s.ty); if (inNow !== inTgt && pen.gateOpen) { const g = gateCenter(pen); s.tx = g.x; s.ty = g.y; } }
+      // if the chosen target is across a wall, steer to the nearest OPEN gate first (never at a diagonal into a corner)
+      for (const pen of F.pens) { const inNow = penInsideStrict(pen, s.x, s.y), inTgt = penInsideStrict(pen, s.tx, s.ty); if (inNow !== inTgt && pen.gateOpen) { let best = null, bd = 1e9; for (const side of gateSides(pen)) { const g = gateCenterFor(pen, side); const dd = dist(s.x, s.y, g.x, g.y); if (dd < bd) { bd = dd; best = g; } } if (best) { s.tx = best.x; s.ty = best.y; } } }
 
-      const spd = fleeing ? 2.4 : toPen ? 1.5 : (s.role === 'lamb' ? 0.9 : 0.6);
+      const spd = foxFlee ? 2.4 : toPen ? 1.6 : dogNudge ? 1.9 : (s.role === 'lamb' ? 0.9 : 0.6);
       const a = Math.atan2(s.ty - s.y, s.tx - s.x);
       if (dist(s.x, s.y, s.tx, s.ty) > 4) { s.y = clamp(s.y + Math.sin(a) * spd * dt, paddock.y + 24, paddock.y + paddock.h - 24); const b = fieldBounds(s.y); s.x = clamp(s.x + Math.cos(a) * spd * dt, b.left, b.right); }
 
-      const sc = dscale(s.y), sep = 15 * sc;
-      for (let j = 0; j < sheep.length; j++) { if (j === i) continue; const o = sheep[j]; const dd = dist(s.x, s.y, o.x, o.y); if (dd < sep && dd > 0.01) { const push = (sep - dd) * 0.5; const ang = Math.atan2(s.y - o.y, s.x - o.x); s.x += Math.cos(ang) * push; s.y += Math.sin(ang) * push; } }
-      repelFromPens(s, 13);
+      const sc = dscale(s.y), sep = (toPen ? 10 : 15) * sc, pf = toPen ? 0.18 : 0.5;   // pack tight & gentle while herding so newcomers aren't shoved back out
+      for (let j = 0; j < sheep.length; j++) { if (j === i) continue; const o = sheep[j]; const dd = dist(s.x, s.y, o.x, o.y); if (dd < sep && dd > 0.01) { const push = (sep - dd) * pf; const ang = Math.atan2(s.y - o.y, s.x - o.x); s.x += Math.cos(ang) * push; s.y += Math.sin(ang) * push; } }
+      repelFromPens(s, toPen ? 7 : 12);   // gentler walls while herding so sheep slide around to the gate
       { const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); }
+      // sticky pen while Woofa is herding: the moment a sheep reaches the gate mouth it's captured and stays in,
+      // so the flock accumulates instead of oscillating at the opening
+      if (herdGoal) { const pn = herdGoal.pen; if (penInside(pn, s.x, s.y) || inGateZone(pn, s.x, s.y)) s._penned = true; if (s._penned && F.pens.indexOf(pn) >= 0) { s.x = clamp(s.x, pn.x + 7, pn.x + pn.w - 7); s.y = clamp(s.y, pn.y + 7, pn.y + pn.h - 7); } } else if (s._penned) s._penned = false;
+      // a shut stone pen firmly contains its flock — a fleeing sheep can never clip out and be caught
+      for (const p of F.pens) if (p.stone && !p.gateOpen && penInside(p, s.x, s.y)) { s.x = clamp(s.x, p.x + 6, p.x + p.w - 6); s.y = clamp(s.y, p.y + 6, p.y + p.h - 6); }
 
       if (F.feed > 0 && s.hunger > 8 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 40) { s.hunger = clamp(s.hunger - 0.32 * dt, 0, 100); F.feed = clamp(F.feed - 0.05 * dt, 0, 100); if (s.hunger < 20 && s.heartT <= 0) s.heartT = 24; }
       if (F.water > 0 && s.thirst > 8 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 40) { s.thirst = clamp(s.thirst - 0.32 * dt, 0, 100); F.water = clamp(F.water - 0.045 * dt, 0, 100); if (s.thirst < 20 && s.heartT <= 0) s.heartT = 24; if (Math.random() < 0.025 * dt) splash(waterTrough.x + rand(-8, 8), waterTrough.y - 3); }
@@ -478,9 +520,9 @@
 
     breedTimer -= dt;
     if (breedTimer <= 0) {
-      breedTimer = rand(1400, 2400);
+      breedTimer = rand(2200, 3600);
       const rams = sheep.filter(s => s.role === 'ram' && s.health > 60), ewes = sheep.filter(s => s.role === 'ewe' && s.health > 60 && s.breedCD <= 0);
-      if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(1600, 2600); sheep.push(makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' })); toast('💕 A lamb was born!'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
+      if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(2200, 3400); sheep.push(makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' })); toast('💕 A lamb was born!'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
     }
 
     predTimer -= dt;
@@ -727,16 +769,16 @@
       ctx.strokeStyle = sel ? '#58e08a' : '#8a6a3a'; ctx.lineWidth = sel ? 3.5 : 3; ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
       ctx.fillStyle = '#6a4f28'; for (let px = p.x; px <= p.x + p.w; px += 30) { ctx.fillRect(px - 1.5, p.y - 4, 3, 8); ctx.fillRect(px - 1.5, p.y + p.h - 4, 3, 8); }
     }
-    const gc = gateCenter(p); ctx.fillStyle = p.gateOpen ? '#58e08a' : '#c86a3a'; ctx.beginPath(); ctx.arc(gc.x, gc.y, 6, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText(p.gateOpen ? 'gate' : 'shut', gc.x, gc.y + (p.gateSide === 1 ? -10 : 14));
-    if (p.stone) { ctx.fillStyle = 'rgba(200,205,210,0.9)'; ctx.font = '700 9px system-ui'; ctx.fillText('🛡️ stone', p.x + 20, p.y + 12); }
+    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); ctx.fillStyle = p.gateOpen ? '#58e08a' : '#c86a3a'; ctx.beginPath(); ctx.arc(gc.x, gc.y, 6, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText(p.gateOpen ? 'gate' : 'shut', gc.x, gc.y + (side === 1 ? -10 : 14)); }
+    if (p.stone) { ctx.fillStyle = 'rgba(200,205,210,0.9)'; ctx.font = '700 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🛡️ stone', p.x + 22, p.y + 12); }
     if (sel) {
       ctx.fillStyle = '#58e08a'; for (const c of penCorners(p)) { roundRect(c.x - 6, c.y - 6, 12, 12, 3); ctx.fill(); }
-      const tk = penTick(p), scr = penScrap(p);
-      ctx.fillStyle = '#2fbf6a'; ctx.beginPath(); ctx.arc(tk.x, tk.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 17px system-ui'; ctx.fillText('✓', tk.x, tk.y + 6);
+      const tk = penTick(p), scr = penScrap(p), db = penDoubleBtn(p);
+      ctx.fillStyle = '#2fbf6a'; ctx.beginPath(); ctx.arc(tk.x, tk.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 17px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✓', tk.x, tk.y + 6);
       ctx.fillStyle = '#d94a3a'; ctx.beginPath(); ctx.arc(scr.x, scr.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 16px system-ui'; ctx.fillText('✕', scr.x, scr.y + 5);
+      ctx.fillStyle = p.doubleGate ? '#3a8ad0' : '#5a6f86'; ctx.beginPath(); ctx.arc(db.x, db.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 15px system-ui'; ctx.fillText('⇄', db.x, db.y + 5);
       if (!p.stone) { const st = penStoneBtn(p); ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.arc(st.x, st.y, 15, 0, 7); ctx.fill(); ctx.font = '14px system-ui'; ctx.fillText('🧱', st.x, st.y + 5); }
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('drag ▢ resize · 🧱 stone (fox-proof) · move gate: tap a wall', p.x + p.w / 2, p.y + p.h + 16);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('▢ resize · 🧱 stone · ⇄ double-gate · move gate: tap a wall', p.x + p.w / 2, p.y + p.h + 16);
     }
   }
   function drawTrough(t, col, level, ic) { const sc = dscale(t.y); ctx.save(); ctx.translate(t.x, t.y); ctx.scale(sc, sc); ctx.fillStyle = '#7a5a3a'; roundRect(-22, -8, 44, 16, 4); ctx.fill(); const surY = -6 + (12 - level / 100 * 12); ctx.fillStyle = col; roundRect(-19, surY, 38, level / 100 * 12, 3); ctx.fill(); if (level > 5) { ctx.globalAlpha = 0.45; ctx.fillStyle = '#ffffff'; const shx = Math.sin(tick / 14 + t.x * 0.1) * 8; ctx.beginPath(); ctx.ellipse(shx, surY + 1.6, 7, 1.4, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; } ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; roundRect(-22, -8, 44, 16, 4); ctx.stroke(); ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.fillText(ic, 0, -12); ctx.restore(); }
@@ -950,7 +992,7 @@
   function openShop() { if (!F) return; renderShop(); shopScreen.classList.remove('hidden'); }
   function closeShop() { shopScreen.classList.add('hidden'); }
   function sheepCost(b) { if (b === 'normal' && sheep.length === 0) return 0; return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
-  function expandCost() { return Math.round(240 * F.farmLevel); }
+  function expandCost() { return Math.round(300 * Math.pow(F.farmLevel, 1.5)); }
   function houseCost() { return Math.round(300 * F.house.level); }
   function workerCost() { return 90 + workers.length * 55; }
 
@@ -1017,13 +1059,14 @@
       noFox() { F._nofox = true; preds.length = 0; }, foxOn() { F._nofox = false; },
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
       addSheep(n) { for (let i = 0; i < (n || 1); i++) sheep.push(makeSheep({ role: i % 2 ? 'ram' : 'ewe', wool: 0 })); updateHud(); },
+      satiate() { for (const s of sheep) { s.hunger = 8; s.thirst = 8; s.starve = 0; s.sick = false; } },
       hire: hireWorker, fire() { if (workers.length) { workers.pop(); syncWorkerJobs(); } }, setJob(i, j) { if (workers[i]) { workers[i].job = j; syncWorkerJobs(); } },
       research, techList() { return Object.keys(F.tech).filter(k => F.tech[k]); }, openResearch,
       buildKind: buyBuilding, addRock, dropPlacing() { placing = null; }, buyTractor, buyPen, buyHouse, buyEnergy, plantTree, plantBush, herdTo, gather: woofaGather, expand: buyExpand,
       buySheep, scrapBuild(i) { if (F.buildings[i]) scrapBuilding(F.buildings[i]); }, killAllSheep() { sheep.length = 0; updateHud(); },
       audio() { ensureAudio(); return { musicOn, hasCtx: !!actx }; }, tickMusic() { musicSched(); }, advClock(s) { if (actx && actx._adv) actx._adv(s); },
       penInfo() { return F.pens.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), w: Math.round(p.w), h: Math.round(p.h), gate: p.gateSide, open: p.gateOpen, stone: !!p.stone })); },
-      resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, stonePen(i) { if (F.pens[i]) upgradePenStone(F.pens[i]); }, closeGate(i) { if (F.pens[i]) F.pens[i].gateOpen = false; }, setEnergy(n) { F.energy = n; },
+      resizePen(i, w, h) { if (F.pens[i]) { F.pens[i].w = w; F.pens[i].h = h; } }, moveGate(i, side) { if (F.pens[i]) F.pens[i].gateSide = side; }, scrapPen(i) { if (F.pens[i]) scrapPen(F.pens[i]); }, selectPen(i) { selectedPen = F.pens[i] || null; }, stonePen(i) { if (F.pens[i]) upgradePenStone(F.pens[i]); }, closeGate(i) { if (F.pens[i]) F.pens[i].gateOpen = false; }, openGate(i) { if (F.pens[i]) F.pens[i].gateOpen = true; }, doubleGate(i) { if (F.pens[i]) F.pens[i].doubleGate = !F.pens[i].doubleGate; return F.pens[i] && F.pens[i].doubleGate; }, gateW(i) { return F.pens[i] ? Math.round(gateWidth(F.pens[i])) : 0; }, setEnergy(n) { F.energy = n; },
       sheepInPen(i) { const p = F.pens[i]; if (!p) return 0; return sheep.filter(s => penInsideStrict(p, s.x, s.y)).length; },
       treeWood() { return F.plants.filter(p => p.type === 'tree').map(p => Math.round(p.wood)); }, rockStone() { return F.plants.filter(p => p.type === 'rock').map(p => Math.round(p.stone)); },
       putSheepIn(i) { const p = F.pens[i]; if (!p) return; for (const s of sheep) { s.x = p.x + p.w / 2 + rand(-p.w * 0.3, p.w * 0.3); s.y = p.y + p.h / 2 + rand(-p.h * 0.3, p.h * 0.3); } },
