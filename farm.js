@@ -118,7 +118,7 @@
     dogs: { woofa: true }, upgrades: { tractor: false },
     pens: [{ x: 0, y: 0, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: false }],
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
-    shearGear: 1, records: { woolCrop: 0 },
+    shearGear: 1, records: { woolCrop: 0, bestShear: {} },
     dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
     diff: null, sheepSeq: 0,
   });
@@ -417,7 +417,7 @@
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
     if (typeof F.dayT !== 'number') F.dayT = 0; if (F.won == null) F.won = false;
     if (typeof F.seasonT !== 'number') F.seasonT = 0; if (!F.weather) F.weather = 'clear'; if (typeof F.weatherT !== 'number') F.weatherT = 900;
-    if (typeof F.shearGear !== 'number') F.shearGear = 1; if (!F.records) F.records = { woolCrop: 0 };
+    if (typeof F.shearGear !== 'number') F.shearGear = 1; if (!F.records) F.records = { woolCrop: 0 }; if (!F.records.bestShear) F.records.bestShear = {};
     if (!F.troughs) { F.troughs = defaultTroughs(); layout(); }
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
@@ -786,6 +786,10 @@
   function shearGearInfo() { const lv = F.shearGear || 1; return { lv, clipR: 24 + (lv - 1) * 9, woolMult: 1 + (lv - 1) * 0.06, name: ['Hand Shears', 'Spring Shears', 'Powered Clippers', 'Pro Clippers', 'Golden Clippers'][lv - 1] || 'Shears' }; }
   // ===== The Shearing Shed — a full side-game: CATCH → SHEAR → GRADE, with a BOSS finale =====
   const SHEAR_MIN = 50;   // penned sheep are shear-able from 50% wool — grade rewards ~80%
+  const SHEAR_DENSITY = { normal: 1, merino: 1.35, golden: 1.05, black: 2.0 };   // black wool is DENSE → ~2× the shearing time
+  const SHEAR_PAR = { normal: 5, merino: 7, golden: 5, black: 10 };              // "gun-shearer" times to beat (seconds)
+  const BREED_LABEL = { normal: 'White', merino: 'Merino', golden: 'Golden', black: 'Black' };
+  const BREED_ICON = { normal: '🐑', merino: '🐏', golden: '⭐', black: '🖤' };
   function woolGrade(pct) {
     const p = clamp(pct, 0, 100);
     if (p >= 74 && p <= 86) return { key: 'premium', label: 'PREMIUM', stars: '★★★', mult: 1.8, col: '#ffd23d' };
@@ -824,10 +828,13 @@
   function buildShearSheep(sh, boss) {
     const s = shearSession;
     s.rx = Math.min(W * (boss ? 0.44 : 0.34), boss ? 232 : 168); s.ry = s.rx * 0.7;
-    s.breed = sh.breed; s.boss = !!boss; s.tufts = []; const gap = boss ? 15 : 17;
-    for (let y = -s.ry; y <= s.ry; y += gap) for (let x = -s.rx; x <= s.rx; x += gap) { if ((x * x) / (s.rx * s.rx) + (y * y) / (s.ry * s.ry) <= 0.95) s.tufts.push({ x: s.cx + x + rand(-3, 3), y: s.cy + y + rand(-3, 3), r: gap * rand(0.62, 0.86), ph: rand(0, 6), gone: false }); }
+    s.breed = sh.breed; s.boss = !!boss; s.tufts = [];
+    const dens = boss ? 1.7 : (SHEAR_DENSITY[sh.breed] || 1);   // denser wool = more tufts = longer to shear
+    const gap = (boss ? 15 : 17) / Math.sqrt(dens);
+    for (let y = -s.ry; y <= s.ry; y += gap) for (let x = -s.rx; x <= s.rx; x += gap) { if ((x * x) / (s.rx * s.rx) + (y * y) / (s.ry * s.ry) <= 0.95) s.tufts.push({ x: s.cx + x + rand(-3, 3), y: s.cy + y + rand(-3, 3), r: gap * rand(0.66, 0.9), ph: rand(0, 6), gone: false }); }
     s.total = s.tufts.length; s.gone = 0; s.sheepT = 0; s.started = false; s.struggle = 0; s.freed = false;
-    s.phase = 'shearing';
+    s.par = SHEAR_PAR[sh.breed] || 6; s.breedRec = (F.records.bestShear && F.records.bestShear[sh.breed]) || null;
+    s.phase = 'shearing';   // ⏱️ clock starts now — the moment you've caught the sheep
   }
   function shearDown(p) {
     if (!shearSession) return; const s = shearSession;
@@ -867,7 +874,7 @@
         if (cut > 0 && !s.started) s.started = true;
         if (cut > 0) sfx.shear();
       }
-      if (s.started) s.sheepT += dt / 60;
+      s.sheepT += dt / 60;   // clock runs from the moment the sheep is caught (dawdling costs time)
       if (s.boss && !s.freed) { s.struggle = clamp(s.struggle + dt / 1500, 0, 1); if (s.struggle >= 1) { bossBreaksFree(); return; } }
       if (s.gone >= s.total * 0.98) finishShearSheep();
     } else if (s.phase === 'grade') { s.gradeT += dt; if (s.gradeT > 165) advanceAfterGrade(); }
@@ -879,16 +886,28 @@
     const s = shearSession, sh = s.catch.sh, gear = shearGearInfo();
     const grade = woolGrade(s.catch.pct);
     const base = Math.max(1, Math.round(shearValue(sh) * gear.woolMult * (0.4 + 0.6 * clamp(s.catch.pct / 100, 0, 1))));
-    const spd = s.sheepT, fast = spd < 3 ? 1.3 : spd < 5 ? 1.12 : 1.0, cleanBonus = s.catch.clean ? 1.12 : 1, bossMul = s.boss ? 3 : 1;
+    const spd = s.sheepT, par = s.par || 6;
+    const fast = spd <= par ? 1.4 : spd <= par * 1.6 ? 1.15 : 1.0, cleanBonus = s.catch.clean ? 1.12 : 1, bossMul = s.boss ? 3 : 1;
     const got = Math.max(1, Math.round(base * grade.mult * fast * cleanBonus * bossMul));
     s.totalWool += got;
+    // ⏱️ per-breed BEST TIME (skip the boss) — the speed-run high score
+    let newTimeRec = false;
+    if (!s.boss) {
+      if (!F.records.bestShear) F.records.bestShear = {};
+      const prev = F.records.bestShear[s.breed];
+      if (prev == null || spd < prev) { F.records.bestShear[s.breed] = Math.round(spd * 10) / 10; newTimeRec = true; }
+    }
+    s.lastTime = spd; s.lastPar = par; s.lastTimeRec = newTimeRec;
     if (!s.boss) { s.tally[grade.key]++; s.grades.push(grade.key); if (grade.key === 'premium') { s.combo++; s.bestCombo = Math.max(s.bestCombo, s.combo); } else s.combo = 0; }
     if (sh && !sh.boss) { sh.wool = 0; sh.baaT = 40; sh.heartT = 30; }
     s.lastGrade = s.boss ? { label: 'BEAST SHORN!', stars: '🏆', col: '#ffd23d' } : grade; s.lastGot = got; s.flashT = 90;
     s.phase = 'grade'; s.gradeT = 0;
     pop(s.cx, s.cy - s.ry - 26, (s.boss ? '🏆 BEAST! +' : grade.stars + ' +') + got + '🧺', s.boss ? '#ffd23d' : grade.col, true);
-    sfx.coin(); if (grade.key === 'premium' || s.boss) { confetti(s.cx, s.cy - s.ry, ['⭐', '🧺', '✨', '💛']); sfx.up(); }
+    sfx.coin();
+    if (newTimeRec) { flashAlert('🏆 NEW BEST ' + (BREED_LABEL[s.breed] || '').toUpperCase() + ' TIME! ' + spd.toFixed(1) + 's', '#ffd23d', true); sfx.up(); confetti(s.cx, s.cy - s.ry, ['🏆', '⏱️', '⭐', '💛']); }
+    else if (grade.key === 'premium' || s.boss) { confetti(s.cx, s.cy - s.ry, ['⭐', '🧺', '✨', '💛']); sfx.up(); }
     if (s.boss) { s.bossDone = true; s.trophy = true; }
+    persist();
   }
   function bossBreaksFree() {
     const s = shearSession;
@@ -1355,21 +1374,41 @@
     const prog = s.phase === 'shearing' ? '  ·  ✂️ ' + Math.round(s.gone / Math.max(1, s.total) * 100) + '%' : '';
     ctx.fillText(who + prog + '   🧺 ' + s.totalWool + '   🏆 ' + Math.floor((F.records && F.records.woolCrop) || 0), W / 2, 65);
     if (s.phase === 'catch' && s.catch && !s.catch.boss) { const g = woolGrade(s.catch.pct); ctx.fillStyle = g.col; ctx.font = '900 15px system-ui'; ctx.fillText(g.stars + ' ' + s.catch.pct + '% → ' + g.label + ' grade   (aim for ~80%)', W / 2, 92); }
+    if (s.phase === 'shearing') {
+      const beating = s.sheepT <= (s.par || 6);
+      ctx.fillStyle = beating ? '#8fe08a' : '#fff'; ctx.font = '900 32px system-ui'; ctx.fillText('⏱️ ' + s.sheepT.toFixed(1) + 's', W / 2, 116);
+      ctx.font = '800 13px system-ui'; ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      const rec = (s.breedRec != null) ? ('🏆 best ' + s.breedRec.toFixed(1) + 's') : '🏆 no time yet';
+      ctx.fillText((BREED_LABEL[s.breed] || '') + ' sheep  ·  ' + rec + '  ·  gun ' + (s.par || 6) + 's', W / 2, 138);
+    }
   }
   function drawShearIntro(s) {
     ctx.fillStyle = 'rgba(6,10,20,0.5)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffd23d'; ctx.font = '900 40px system-ui'; ctx.fillText('✂️ SHEARING SHED', W / 2, H * 0.36);
-    ctx.fillStyle = '#fff'; ctx.font = '800 18px system-ui'; ctx.fillText('Catch each sheep, then shear it clean!', W / 2, H * 0.36 + 42);
-    ctx.fillStyle = '#8fe08a'; ctx.font = '800 16px system-ui'; ctx.fillText('★★★ Best grade when the wool is around 80% ★★★', W / 2, H * 0.36 + 74);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to start', W / 2, H * 0.36 + 112);
+    ctx.fillStyle = '#ffd23d'; ctx.font = '900 38px system-ui'; ctx.fillText('✂️ SHEARING SHED', W / 2, H * 0.3);
+    ctx.fillStyle = '#fff'; ctx.font = '800 17px system-ui'; ctx.fillText('Catch each sheep, then shear it FAST!', W / 2, H * 0.3 + 38);
+    ctx.fillStyle = '#8fe08a'; ctx.font = '800 15px system-ui'; ctx.fillText('★★★ Best grade at ~80% wool  ·  ⏱️ beat the gun time ★★★', W / 2, H * 0.3 + 68);
+    // your best times so far
+    const bs = F.records.bestShear || {}, breeds = ['normal', 'black', 'merino', 'golden'].filter(b => bs[b] != null);
+    ctx.fillStyle = '#ffd23d'; ctx.font = '900 16px system-ui'; ctx.fillText('🏆 YOUR BEST TIMES', W / 2, H * 0.3 + 104);
+    ctx.font = '800 15px system-ui'; ctx.fillStyle = '#eaf0ff';
+    if (breeds.length) { let ry = H * 0.3 + 130; for (const b of breeds) { ctx.fillText(BREED_ICON[b] + ' ' + BREED_LABEL[b] + ': ' + bs[b].toFixed(1) + 's   (gun ' + SHEAR_PAR[b] + 's)', W / 2, ry); ry += 24; } }
+    else { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 14px system-ui'; ctx.fillText('none yet — shear fast to set a record!', W / 2, H * 0.3 + 130); }
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to start', W / 2, H * 0.86);
   }
   function drawGradeFlash(s) {
     const g = s.lastGrade; if (!g) return; ctx.textAlign = 'center';
     ctx.save(); ctx.globalAlpha = clamp(s.gradeT < 18 ? s.gradeT / 18 : 1, 0, 1);
-    ctx.fillStyle = g.col; ctx.font = '900 46px system-ui'; ctx.fillText((g.stars || '') + ' ' + g.label, W / 2, H * 0.26);
-    ctx.fillStyle = '#fff5c8'; ctx.font = '900 26px system-ui'; ctx.fillText('+' + s.lastGot + ' 🧺', W / 2, H * 0.26 + 40);
-    if (s.combo >= 2 && g.key === 'premium') { ctx.fillStyle = '#ffd23d'; ctx.font = '900 20px system-ui'; ctx.fillText('🔥 ' + s.combo + ' PREMIUM STREAK!', W / 2, H * 0.26 + 74); }
-    ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to continue', W / 2, H * 0.26 + 104);
+    let y = H * 0.24;
+    ctx.fillStyle = g.col; ctx.font = '900 44px system-ui'; ctx.fillText((g.stars || '') + ' ' + g.label, W / 2, y); y += 38;
+    ctx.fillStyle = '#fff5c8'; ctx.font = '900 24px system-ui'; ctx.fillText('+' + s.lastGot + ' 🧺', W / 2, y); y += 36;
+    if (s.lastTime != null && !s.boss) {
+      const beat = s.lastTimeRec;
+      ctx.fillStyle = beat ? '#ffd23d' : '#bcd0ff'; ctx.font = '900 24px system-ui';
+      ctx.fillText('⏱️ ' + s.lastTime.toFixed(1) + 's' + (s.lastTime <= s.lastPar ? '  ⚡GUN!' : ''), W / 2, y); y += 30;
+      if (beat) { ctx.fillStyle = '#ffd23d'; ctx.font = '900 22px system-ui'; ctx.fillText('🏆 NEW BEST ' + (BREED_LABEL[s.breed] || '').toUpperCase() + ' TIME!', W / 2, y); y += 30; }
+    }
+    if (s.combo >= 2 && g.key === 'premium') { ctx.fillStyle = '#ffd23d'; ctx.font = '900 20px system-ui'; ctx.fillText('🔥 ' + s.combo + ' PREMIUM STREAK!', W / 2, y); y += 28; }
+    ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to continue', W / 2, y + 6);
     ctx.restore();
   }
   function drawShearSummary(s) {
@@ -1383,6 +1422,9 @@
     for (const ln of lines) { if (ln[1] > 0) { ctx.fillStyle = ln[2]; ctx.fillText(ln[0] + '  ×' + ln[1], W / 2, gy); gy += 26; } }
     if (s.bestCombo >= 2) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 18px system-ui'; ctx.fillText('🔥 Best premium streak: ' + s.bestCombo, W / 2, gy); gy += 28; }
     if (s.record) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 20px system-ui'; ctx.fillText('🏆 NEW RECORD WOOL CROP!', W / 2, gy); gy += 28; }
+    // best-time board — the speed-run high scores
+    const bs = F.records.bestShear || {}, breeds = ['normal', 'black', 'merino', 'golden'].filter(b => bs[b] != null);
+    if (breeds.length) { gy += 4; ctx.fillStyle = '#ffd23d'; ctx.font = '900 16px system-ui'; ctx.fillText('⏱️ BEST TIMES', W / 2, gy); gy += 24; ctx.font = '800 15px system-ui'; for (const b of breeds) { ctx.fillStyle = '#eaf0ff'; ctx.fillText(BREED_ICON[b] + ' ' + BREED_LABEL[b] + ': ' + bs[b].toFixed(1) + 's  (gun ' + SHEAR_PAR[b] + 's)', W / 2, gy); gy += 22; } }
     ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to send them out to pasture 🐑', W / 2, gy + 8);
   }
   function drawShearCutscene(s) {
@@ -1664,12 +1706,15 @@
       addSheep(n) { for (let i = 0; i < (n || 1); i++) sheep.push(makeSheep({ role: i % 2 ? 'ram' : 'ewe', wool: 0 })); updateHud(); },
       satiate() { for (const s of sheep) { s.hunger = 8; s.thirst = 8; s.starve = 0; s.sick = false; } },
       shearStart(pct) { const p = F.pens[0]; let i = 0; for (const s of sheep) if (s.role !== 'lamb') { s.wool = pct != null ? pct : [70, 80, 90, 60, 82][i % 5]; i++; if (p) { s.x = p.x + p.w / 2 + rand(-p.w * 0.2, p.w * 0.2); s.y = p.y + p.h / 2 + rand(-p.h * 0.2, p.h * 0.2); } } const list = sheep.filter(x => x.wool >= SHEAR_MIN && x.role !== 'lamb' && insideAnyPen(x.x, x.y)); startShearSession(list); return list.length; },
-      shearInfo() { const s = shearSession; return s ? { phase: s.phase, idx: s.idx, queue: s.queue.length, gone: s.gone, total: s.total, totalWool: s.totalWool, earned: s.earned, record: s.record, boss: s.boss, bossDone: s.bossDone, trophy: s.trophy, tally: s.tally, combo: s.combo, catchPct: s.catch ? s.catch.pct : null } : null; },
+      shearInfo() { const s = shearSession; return s ? { phase: s.phase, idx: s.idx, queue: s.queue.length, gone: s.gone, total: s.total, totalWool: s.totalWool, earned: s.earned, record: s.record, boss: s.boss, bossDone: s.bossDone, trophy: s.trophy, tally: s.tally, combo: s.combo, catchPct: s.catch ? s.catch.pct : null, breed: s.breed, sheepT: s.sheepT, par: s.par, breedRec: s.breedRec, lastTime: s.lastTime, lastTimeRec: s.lastTimeRec } : null; },
       shearPhase() { return shearSession ? shearSession.phase : null; },
       shearCatchNow() { const s = shearSession; if (!s || s.phase !== 'catch') return false; tryCatch(s.catch.x, s.catch.y); return s.phase; },
       shearMiss() { const s = shearSession; if (!s || s.phase !== 'catch') return; tryCatch(s.catch.x + 9999, s.catch.y); },
       shearSweep() { const s = shearSession; if (!s || s.phase !== 'shearing') return; s.clip.down = true; for (let y = s.cy - s.ry - 5; y <= s.cy + s.ry + 5; y += 7) for (let x = s.cx - s.rx - 5; x <= s.cx + s.rx + 5; x += 7) { s.clip.lx = s.clip.x; s.clip.ly = s.clip.y; s.clip.x = x; s.clip.y = y; shearUpdate(1); } s.clip.down = false; },
       shearAdvance() { const s = shearSession; if (s && s.phase === 'grade') advanceAfterGrade(); return s ? s.phase : null; },
+      shearFinishAt(t) { const s = shearSession; if (!s || s.phase !== 'shearing') return null; s.sheepT = t; for (const w of s.tufts) w.gone = true; s.gone = s.total; shearUpdate(1); return { phase: s.phase, breed: s.breed, lastTime: s.lastTime, rec: s.lastTimeRec, par: s.lastPar, best: F.records.bestShear }; },
+      bestTimes() { return F.records.bestShear; }, shearTuftCount() { return shearSession ? shearSession.total : null; },
+      spawnBreed(b, wool) { const p = F.pens[0]; const ns = makeSheep({ breed: b, role: 'ewe', wool: wool == null ? 80 : wool }); if (p) { ns.x = p.x + p.w / 2; ns.y = p.y + p.h / 2; } sheep.push(ns); updateHud(); return ns.id; },
       shearTap() { shearDown({ x: W / 2, y: H / 2 }); }, shearStep(n) { for (let i = 0; i < (n || 1); i++) shearUpdate(1); }, shearRenderNow() { if (shearSession) shearRender(); }, buyShears, gear() { return F.shearGear; }, records() { return F.records; },
       grade(p) { return woolGrade(p); }, fireWorker, forceBoss() { const s = shearSession; if (s) { s.idx = s.queue.length; s.bossDone = false; beginCatch(true); } },
       slot() { return curSlot; }, pickSlot, restart: restartFarm, slotSummary,
