@@ -26,6 +26,7 @@
       <div class="hud-pill" id="fSheep">🐑 0</div>
       <div class="hud-pill era" id="fLevel">🏡 Homestead</div>
       <div class="hud-spacer"></div>
+      <button class="hud-mini" id="btnSheep" title="My Sheep">📖</button>
       <button class="hud-mini" id="btnResearch" title="Research">🔬</button>
       <button class="hud-mini" id="btnSound" title="Sound">🔊</button>
       <button class="hud-mini" id="btnHelp" title="How to play">?</button>
@@ -53,6 +54,13 @@
 
   <!-- Woofa herd button -->
   <button id="btnWoofa" class="woofa-btn"><span class="woofa-emoji">🐾</span><span class="woofa-lbl">WOOFA</span></button>
+
+  <!-- map controls: zoom + find-my-farm -->
+  <div id="mapCtrls" class="map-ctrls">
+    <button class="map-btn" id="btnZoomIn" title="Zoom in">＋</button>
+    <button class="map-btn" id="btnZoomOut" title="Zoom out">－</button>
+    <button class="map-btn" id="btnHome" title="Find my farm">🏠</button>
+  </div>
 
   <!-- bottom action bar -->
   <div id="farmBar" class="farm-bar">
@@ -143,6 +151,30 @@
       </div>
       <div id="researchList" class="shop-list"></div>
       <button class="btn btn-primary" id="researchClose">Back to the farm</button>
+    </div>
+  </div>
+
+  <!-- my sheep collection book -->
+  <div id="sheepScreen" class="overlay hidden">
+    <div class="panel panel-wide">
+      <div class="shop-head">
+        <h2>📖 My Sheep</h2>
+        <div class="shop-coins" id="sheepCount">🐑 0</div>
+      </div>
+      <div id="sheepList" class="shop-list sheep-list"></div>
+      <button class="btn btn-primary" id="sheepClose">Back to the farm</button>
+    </div>
+  </div>
+
+  <!-- rename a sheep -->
+  <div id="renameScreen" class="overlay hidden">
+    <div class="panel rename-panel">
+      <div class="rename-emoji" id="renameEmoji">🐑</div>
+      <h2>Name your sheep</h2>
+      <input id="renameInput" class="rename-input" maxlength="14" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Type a name…" />
+      <button class="btn btn-primary" id="renameSave">✓ Save name</button>
+      <button class="btn btn-ghost" id="renameShuffle">🎲 Surprise me</button>
+      <button class="btn-ghost rename-cancel" id="renameCancel">Cancel</button>
     </div>
   </div>
 
