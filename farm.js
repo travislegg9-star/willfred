@@ -99,17 +99,17 @@
   let tractor = null, paddock = {}, feedTrough = {}, waterTrough = {}, shed = {}, house = {};
   let running = false, tick = 0, breedTimer = 1600, predTimer = 1600, alertTimer = 0;
   let placing = null, drag = null, selectedPen = null, selectedBuilding = null, herdGoal = null;
-  let cam = { x: 0, y: 0 }, viewH = 0, panLast = null;   // vertical camera for the scrollable map
+  let viewRect = { x: 0, y: 0, w: 0, h: 0 }, zoom = 1;   // one-screen zoom camera — the whole farm always fits
   let shearSession = null;   // the shearing minigame (pauses the farm)
 
-  function spaceMargins() { const lvl = F ? F.farmLevel : 1; return { top: Math.max(150, 178 - (lvl - 1) * 6), bot: 128, mx: Math.max(6, 18 - (lvl - 1) * 2) }; }
-  function worldScale() { return 1 + ((F ? F.farmLevel : 1) - 1) * 0.15; }   // taller world as the empire grows
-  function camMaxY() { return Math.max(0, paddock.h - viewH); }
+  function spaceMargins() { return { top: 168, bot: 128, mx: 16 }; }
+  function worldScale() { return 1 + ((F ? F.farmLevel : 1) - 1) * 0.16; }   // the farm zooms OUT as it grows → more room, still one screen
   function layout() {
     const m = spaceMargins();
-    viewH = H - m.top - m.bot;
-    paddock = { x: m.mx, y: m.top, w: W - m.mx * 2, h: viewH * worldScale() };
-    cam.y = clamp(cam.y, 0, camMaxY());
+    viewRect = { x: m.mx, y: m.top, w: W - m.mx * 2, h: H - m.top - m.bot };
+    const ws = worldScale();
+    paddock = { x: m.mx, y: m.top, w: viewRect.w * ws, h: viewRect.h * ws };   // logical field grows with the era
+    zoom = 1 / ws;                                                             // …and is zoomed to fit the fixed screen
     if (F && F.troughs) { feedTrough = F.troughs.feed; waterTrough = F.troughs.water; }
     shed = { x: paddock.x + paddock.w - 60, y: paddock.y + 8 };
     house = { x: paddock.x + 46, y: paddock.y + 12 };
@@ -217,13 +217,15 @@
   function workerCap() { return 3 + (F.farmLevel - 1) + (F.house.level - 1) + bunkCount() * 2; }
   function initGrass() { grass.length = 0; for (let i = 0; i < 40; i++) grass.push({ x: rand(paddock.x + 20, paddock.x + paddock.w - 20), y: rand(paddock.y + 20, paddock.y + paddock.h - 24), amt: rand(0.35, 0.9) }); }
   function initMotes() { motes.length = 0; for (let i = 0; i < 16; i++) motes.push({ x: rand(paddock.x + 40, paddock.x + paddock.w - 40), y: rand(paddock.y + 20, paddock.y + paddock.h - 20), ph: rand(0, 6), vx: rand(-0.14, 0.14), vy: rand(-0.12, -0.03) }); }
+  function fieldClampX(fx, y) { const b = fieldBounds(y); return clamp(paddock.x + paddock.w * fx, b.left + 10, b.right - 10); }
   function initPlants() {
     F.plants = [];
-    F.plants.push({ type: 'tree', x: paddock.x + paddock.w * 0.16, y: paddock.y + 30, sz: rand(0.9, 1.1), wood: 100 });
-    F.plants.push({ type: 'tree', x: paddock.x + paddock.w * 0.84, y: paddock.y + 26, sz: rand(0.9, 1.1), wood: 100 });
-    F.plants.push({ type: 'bush', x: paddock.x + paddock.w * 0.5, y: paddock.y + paddock.h * 0.32, sz: 1, amt: 1 });
-    F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.72, y: paddock.y + paddock.h * 0.2, sz: 1, stone: 100 });
-    F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.3, y: paddock.y + paddock.h * 0.18, sz: 0.9, stone: 100 });
+    const place = (type, fx, fy, extra) => { const y = paddock.y + paddock.h * fy; F.plants.push(Object.assign({ type, x: fieldClampX(fx, y), y }, extra)); };
+    place('tree', 0.16, 0.16, { sz: rand(0.9, 1.1), wood: 100 });
+    place('tree', 0.84, 0.14, { sz: rand(0.9, 1.1), wood: 100 });
+    place('bush', 0.5, 0.32, { sz: 1, amt: 1 });
+    place('rock', 0.72, 0.22, { sz: 1, stone: 100 });
+    place('rock', 0.3, 0.2, { sz: 0.9, stone: 100 });
   }
   function makeTractor() { return { x: paddock.x + 50, y: paddock.y + 50, tx: 0, ty: 0, facing: 1, zoom: 0 }; }
   function rebuildDogs() { dogs.length = 0; for (const k of Object.keys(DOGS)) if (F.dogs[k]) dogs.push(makeDog(DOGS[k].kind)); }
@@ -306,7 +308,7 @@
     if (!F.house) F.house = { level: 1 };
     if (!F.pens) F.pens = [];
     if (!F.plants) initPlants();
-    if (!F.plants.some(p => p.type === 'rock')) { F.plants.push({ type: 'rock', x: paddock.x + paddock.w * 0.72, y: paddock.y + paddock.h * 0.2, sz: 1, stone: 100 }); }
+    if (!F.plants.some(p => p.type === 'rock')) { const ry = paddock.y + paddock.h * 0.22; F.plants.push({ type: 'rock', x: fieldClampX(0.72, ry), y: ry, sz: 1, stone: 100 }); }
     for (const pl of F.plants) { if (pl.type === 'tree' && pl.wood == null) pl.wood = 100; if (pl.type === 'rock' && pl.stone == null) pl.stone = 100; }
     for (const t of [F.troughs.feed, F.troughs.water]) { const b = fieldBounds(t.y); t.x = clamp(t.x, b.left, b.right); t.y = clamp(t.y, paddock.y + 26, paddock.y + paddock.h - 20); }
     for (const p of F.pens) { if (!p._init) { p.x = paddock.x + paddock.w / 2 - p.w / 2; p.y = paddock.y + paddock.h * 0.5 - p.h / 2; p._init = true; } if (p.gateSide == null) p.gateSide = 0; if (p.stone == null) p.stone = false; }
@@ -326,7 +328,7 @@
   }
 
   // ---------- input ----------
-  function pt(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top + cam.y }; }
+  function pt(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); const sx = t.clientX - r.left, sy = t.clientY - r.top; return { x: paddock.x + (sx - viewRect.x) / zoom, y: paddock.y + (sy - viewRect.y) / zoom }; }
   function nearGate(p, x, y) { for (const side of gateSides(p)) { const g = gateCenterFor(p, side); if (dist(x, y, g.x, g.y) < gateWidth(p) / 2 + 8) return true; } return false; }
   function wallMidHit(p, x, y) { const mids = [{ s: 0, x: p.x + p.w / 2, y: p.y + p.h }, { s: 1, x: p.x + p.w / 2, y: p.y }, { s: 2, x: p.x, y: p.y + p.h / 2 }, { s: 3, x: p.x + p.w, y: p.y + p.h / 2 }]; for (const m of mids) if (dist(x, y, m.x, m.y) < 20) return m.s; return -1; }
 
@@ -385,19 +387,13 @@
     } else { const t = drag.ref; t.y = clamp(p.y - drag.oy, paddock.y + 26, paddock.y + paddock.h - 20); const b = fieldBounds(t.y); t.x = clamp(p.x - drag.ox, b.left, b.right); }
   }
   function onUp() { if (drag) { persist(); drag = null; } }
-  const twoFingerY = (e) => (e.touches[0].clientY + e.touches[1].clientY) / 2;
   function ptRaw(e) { const t = e.touches ? e.touches[0] : e; const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; }
-  canvas.addEventListener('touchstart', (e) => { if (shearSession) { e.preventDefault(); shearDown(ptRaw(e)); return; } if (e.touches.length >= 2) { panLast = twoFingerY(e); return; } onDown(e); }, { passive: false });
-  canvas.addEventListener('touchmove', (e) => {
-    if (shearSession) { e.preventDefault(); shearMove(ptRaw(e)); return; }
-    if (e.touches.length >= 2) { e.preventDefault(); const avg = twoFingerY(e); if (panLast != null && camMaxY() > 0) cam.y = clamp(cam.y - (avg - panLast), 0, camMaxY()); panLast = avg; return; }
-    if (placing || drag) e.preventDefault(); onMove(e);
-  }, { passive: false });
-  canvas.addEventListener('touchend', (e) => { if (shearSession) { shearUp(); return; } if (!e.touches || e.touches.length === 0) panLast = null; onUp(e); });
+  canvas.addEventListener('touchstart', (e) => { if (shearSession) { e.preventDefault(); shearDown(ptRaw(e)); return; } onDown(e); }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => { if (shearSession) { e.preventDefault(); shearMove(ptRaw(e)); return; } if (placing || drag) e.preventDefault(); onMove(e); }, { passive: false });
+  canvas.addEventListener('touchend', (e) => { if (shearSession) { shearUp(); return; } onUp(e); });
   canvas.addEventListener('mousedown', (e) => { if (shearSession) { shearDown(ptRaw(e)); return; } onDown(e); });
   window.addEventListener('mousemove', (e) => { if (shearSession) { shearMove(ptRaw(e)); return; } if (placing || drag) onMove(e); });
   window.addEventListener('mouseup', () => { if (shearSession) { shearUp(); return; } onUp(); });
-  canvas.addEventListener('wheel', (e) => { if (camMaxY() > 0) { e.preventDefault(); cam.y = clamp(cam.y + e.deltaY * 0.5, 0, camMaxY()); } }, { passive: false });
 
   function herdTo(x, y) { x = clamp(x, paddock.x + 16, paddock.x + paddock.w - 16); y = clamp(y, paddock.y + 16, paddock.y + paddock.h - 16); for (const d of dogs) { d.tx = x + rand(-18, 18); d.ty = y + rand(-14, 14); d.moveT = 90; d.zoom = 1; } if (tractor) { tractor.tx = x; tractor.ty = y; tractor.zoom = 1; } pop(x, y, '🐾', '#fff'); }
   function woofaGather() {
@@ -708,8 +704,7 @@
   function render() {
     ctx.fillStyle = '#0c1a12'; ctx.fillRect(0, 0, W, H);
     if (!F) return;
-    ctx.save(); ctx.translate(0, -cam.y);   // ← camera: world layer scrolls, screen overlays drawn after restore
-    const dayL = 1 - nightAmt();
+    const dayL = 1 - nightAmt();   // sky/sun/mountains/hills below are a fixed SCREEN backdrop (not zoomed)
     const sky = ctx.createLinearGradient(0, 0, 0, paddock.y + 20); sky.addColorStop(0, '#6fbdf5'); sky.addColorStop(0.55, '#a4d8fb'); sky.addColorStop(1, '#e9f6ff');
     ctx.fillStyle = sky; ctx.fillRect(0, 0, W, paddock.y);
     if (dayL > 0.15) { const sx = W * 0.16, sy = paddock.y * 0.3, r = 16; ctx.save(); ctx.globalAlpha = dayL; const gl = ctx.createRadialGradient(sx, sy, 3, sx, sy, 70); gl.addColorStop(0, 'rgba(255,244,190,0.85)'); gl.addColorStop(1, 'rgba(255,244,190,0)'); ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(sx, sy, 70, 0, 7); ctx.fill(); ctx.fillStyle = '#fff2c0'; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fffbe6'; ctx.beginPath(); ctx.arc(sx - 4, sy - 4, r * 0.6, 0, 7); ctx.fill(); ctx.restore(); }
@@ -720,6 +715,7 @@
     ctx.fillStyle = '#5c9c4e'; ctx.beginPath(); ctx.moveTo(0, paddock.y); for (let x = 0; x <= W; x += 80) ctx.lineTo(x, paddock.y - 8 - Math.cos(x / 90) * 10); ctx.lineTo(W, paddock.y); ctx.closePath(); ctx.fill();
     drawClouds(dayL);
 
+    ctx.save(); ctx.translate(viewRect.x, viewRect.y); ctx.scale(zoom, zoom); ctx.translate(-paddock.x, -paddock.y);   // ← zoom the field to fit one screen
     const far = fieldBounds(paddock.y), near = fieldBounds(paddock.y + paddock.h);
     const fL = far.left, fR = far.right, nL = near.left, nR = near.right, ty0 = paddock.y, ty1 = paddock.y + paddock.h;
     ctx.fillStyle = '#5a3f24'; ctx.beginPath(); ctx.moveTo(fL - 12, ty0 - 9); ctx.lineTo(fR + 12, ty0 - 9); ctx.lineTo(nR + 12, ty1 + 10); ctx.lineTo(nL - 12, ty1 + 10); ctx.closePath(); ctx.fill();
@@ -810,7 +806,6 @@
     ctx.fillStyle = '#3a6ea5'; for (const w of workers) { ctx.beginPath(); ctx.arc(sx(w.x), sy(w.y), 1.4, 0, 7); ctx.fill(); }
     for (const fx of preds) { if (fx.dead) continue; ctx.fillStyle = fx.wolf ? '#c94a3a' : '#ff8a3d'; ctx.beginPath(); ctx.arc(sx(fx.x), sy(fx.y), 1.8, 0, 7); ctx.fill(); }
     ctx.fillStyle = '#1a1a1e'; for (const d of dogs) { ctx.beginPath(); ctx.arc(sx(d.x), sy(d.y), 1.5, 0, 7); ctx.fill(); }
-    if (camMaxY() > 0) { const vy = my + (cam.y / paddock.h) * mh, vh = (viewH / paddock.h) * mh; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2; ctx.strokeRect(mx + 0.5, vy + 0.5, mw - 1, vh); }
     ctx.globalAlpha = 1;
   }
 
@@ -1203,7 +1198,7 @@
   function buyPen() { if (F.money < PEN_COST) return; F.money -= PEN_COST; const pen = { x: paddock.x + paddock.w / 2 - 75, y: paddock.y + paddock.h / 2 - 60, w: 150, h: 118, gateOpen: true, gateSide: 0, stone: false, _init: true }; F.pens.push(pen); placing = pen; closeShop(); toast('🚧 Drag into place, then tap to drop.'); persist(); }
   function buyBuilding(k) { const bd = BUILD[k]; if (F.money < bd.coin || F.wood < bd.wood || F.stone < (bd.stone || 0)) return; F.money -= bd.coin; F.wood -= bd.wood; F.stone -= (bd.stone || 0); const n = F.buildings.length; const b = { bkind: k, x: clamp(paddock.x + paddock.w / 2 - bd.w / 2 + (n % 3 - 1) * 66, paddock.x + 4, paddock.x + paddock.w - bd.w - 4), y: paddock.y + paddock.h * 0.35 + (n % 4) * 40, w: bd.w, h: bd.h, cd: 0 }; F.buildings.push(b); placing = b; closeShop(); toast('🏗️ Place your ' + bd.name + ' — tap to drop.'); persist(); }
   function hireWorker(j) { if (workers.length >= workerCap()) return toast('Worker cap reached — build a 🛖 Bunkhouse or upgrade your house!'); const c = workerCost(); if (F.money < c) return; F.money -= c; workers.push(makeWorker(j)); syncWorkerJobs(); toast(WORKER[j].emoji + ' ' + WORKER[j].name + ' hired!'); confetti(house.x + 20, house.y + 30, ['👷', '🎉']); sfx.up(); persist(); }
-  function plantTree() { if (F.money < 70) return; F.money -= 70; F.plants.push({ type: 'tree', x: rand(paddock.x + 40, paddock.x + paddock.w - 40), y: paddock.y + rand(24, paddock.h * 0.5), sz: rand(0.85, 1.15), wood: 100 }); toast('🌳 Planted a tree!'); sfx.pop(); persist(); }
+  function plantTree() { if (F.money < 70) return; F.money -= 70; const y = paddock.y + rand(paddock.h * 0.12, paddock.h * 0.55), b = fieldBounds(y); F.plants.push({ type: 'tree', x: rand(b.left + 12, b.right - 12), y, sz: rand(0.85, 1.15), wood: 100 }); toast('🌳 Planted a tree!'); sfx.pop(); persist(); }
   function addRock() { if (F.money < 90) return; F.money -= 90; const y = rand(paddock.y + paddock.h * 0.15, paddock.y + paddock.h * 0.5); const b = fieldBounds(y); F.plants.push({ type: 'rock', x: rand(b.left + 10, b.right - 10), y, sz: rand(0.9, 1.1), stone: 100 }); toast('🪨 A boulder was hauled in!'); sfx.pop(); persist(); }
   function plantBush() { if (F.money < 50) return; F.money -= 50; const y = rand(paddock.y + paddock.h * 0.35, paddock.y + paddock.h - 40); const b = fieldBounds(y); F.plants.push({ type: 'bush', x: rand(b.left + 10, b.right - 10), y, sz: 1, amt: 1 }); toast('🌿 Planted a grazing bush!'); sfx.pop(); persist(); }
   function callVet() { const sickN = sheep.filter(s => s.sick).length; if (!sickN) return; const cost = 40 + sickN * 20; if (F.money < cost) return; F.money -= cost; for (const s of sheep) if (s.sick) { s.sick = false; s.sickT = 0; s.heartT = 24; pop(s.x, s.y - 12, '💚', '#58e08a'); } toast('💊 The vet cured your flock!'); confetti(W / 2, H * 0.4, ['💚', '🩺', '✨']); sfx.up(); persist(); updateHud(); }
@@ -1245,7 +1240,7 @@
       tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
       setDay(phase) { F.dayT = phase * DAY_LEN; }, night() { return nightAmt(); }, goal() { return goalInfo(); }, levelUpAll() { for (const w of workers) { w.level = 5; } syncWorkerJobs(); }, workXp() { for (const w of workers) gainXp(w); },
       setSeason(i) { F.seasonT = i * SEASON_LEN; }, setWeather(w) { F.weather = w; }, makeSick(n) { let c = 0; for (const s of sheep) { if (c >= (n || 1)) break; if (s.role !== 'lamb' && !s.sick) { s.sick = true; s.sickT = 0; c++; } } return c; }, callVet, packRaid: spawnPack,
-      camInfo() { return { y: Math.round(cam.y), max: Math.round(camMaxY()), viewH: Math.round(viewH), worldH: Math.round(paddock.h), scale: +worldScale().toFixed(2) }; }, setCam(y) { cam.y = clamp(y, 0, camMaxY()); return Math.round(cam.y); },
+      camInfo() { return { zoom: +zoom.toFixed(3), scale: +worldScale().toFixed(2), worldW: Math.round(paddock.w), worldH: Math.round(paddock.h), viewW: Math.round(viewRect.w), viewH: Math.round(viewRect.h) }; },
       flockSpread() { if (sheep.length < 2) return 0; const c = flockCentroid(); let d = 0; for (const s of sheep) d += Math.hypot(s.x - c.x, s.y - c.y); return Math.round(d / sheep.length); },
       dbg() { return { pens: F.pens.length, placing: placing ? (placing.bkind || 'pen') : null, drag: drag ? drag.type : null, selected: !!selectedPen, herding: !!herdGoal, workers: workers.length, buildings: F.buildings.length, preds: preds.length }; },
     };
