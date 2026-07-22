@@ -35,18 +35,35 @@
     field.x = mx; field.y = top; field.w = W - mx * 2; field.h = H - top - bot;
   }
 
-  let player, sheep, frisbees, bales, round, collected, target, lives, running, invuln, tick;
+  let player, sheep, frisbees, bales, bones, round, collected, target, lives, running, invuln, tick, boneTimer, scareT, shakeT;
+  const particles = [];
 
   function reset() {
     layoutField();
-    round = 1; startRound(); running = true; hideOverlays(); updateHud();
+    round = 1; ensureAudio(); startRound(); running = true; hideOverlays(); updateHud();
   }
+
+  // ---------- sound ----------
+  let actx = null, master = null;
+  function ensureAudio() { try { if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination); } if (actx.state === 'suspended' && actx.resume) actx.resume(); } catch (e) { actx = null; } }
+  function beep(f, dur, type, vol, slideTo) { if (!actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = f; if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, actx.currentTime + dur); g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur + 0.02); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + dur + 0.04); } catch (e) {} }
+  const sfx = {
+    grab() { beep(720, 0.06, 'triangle', 0.05, 1080); },
+    steal() { beep(300, 0.12, 'square', 0.05, 150); },
+    caught() { beep(170, 0.3, 'sawtooth', 0.08, 70); setTimeout(() => beep(110, 0.24, 'square', 0.06, 60), 70); },
+    round() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'triangle', 0.06), i * 90)); },
+    over() { [400, 300, 200].forEach((f, i) => setTimeout(() => beep(f, 0.26, 'sawtooth', 0.06, f * 0.7), i * 130)); },
+    bone() { beep(950, 0.08, 'triangle', 0.05, 1400); },
+    bark() { beep(200, 0.16, 'square', 0.08, 95); setTimeout(() => beep(620, 0.2, 'sawtooth', 0.07, 190), 80); },
+  };
+  function boom(x, y, c, n) { for (let i = 0; i < n; i++) { const a = rand(0, 7), s = rand(1, 4); particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1.5, life: 1, r: rand(2, 5), c }); } }
 
   function startRound() {
     collected = 0;
     target = 8 + round * 2;
-    lives = 3; invuln = 0; tick = 0;
+    lives = 3; invuln = 0; tick = 0; scareT = 0; shakeT = 0; boneTimer = rand(180, 340); particles.length = 0;
     player = { x: field.x + field.w / 2, y: field.y + field.h - 40, r: 15, speed: 3.4, dir: -Math.PI / 2, moving: false };
+    bones = [];
     bales = [];
     const nb = 2 + Math.min(round, 4);
     for (let i = 0; i < nb; i++) {
@@ -76,6 +93,12 @@
     }
     frisbees.push({ x: field.x + field.w / 2, y: field.y + field.h / 2, r: 9, ph: 0 });
   }
+  function spawnBone() {
+    for (let tries = 0; tries < 20; tries++) {
+      const x = rand(field.x + 40, field.x + field.w - 40), y = rand(field.y + 40, field.y + field.h - 40);
+      if (!bales.some((b) => x > b.x - 20 && x < b.x + b.w + 20 && y > b.y - 20 && y < b.y + b.h + 20)) { bones.push({ x, y, r: 13, ph: rand(0, 6) }); return; }
+    }
+  }
 
   // ---------- input: drag joystick ----------
   const joy = { active: false, ox: 0, oy: 0, x: 0, y: 0 };
@@ -95,6 +118,11 @@
     if (!running || !player) return;
     tick += dt;
     if (invuln > 0) invuln -= dt;
+    if (scareT > 0) scareT -= dt;
+    if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
+    boneTimer -= dt;
+    if (boneTimer <= 0 && bones.length === 0) { spawnBone(); boneTimer = rand(420, 700); }
+    for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.vy += 0.1 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.025 * dt; if (p.life <= 0) particles.splice(i, 1); }
 
     // player velocity from joystick or keys
     let vx = 0, vy = 0;
@@ -113,8 +141,14 @@
     // collect frisbees
     for (let i = frisbees.length - 1; i >= 0; i--) {
       if (dist(player.x, player.y, frisbees[i].x, frisbees[i].y) < player.r + frisbees[i].r) {
-        frisbees.splice(i, 1); collected++; spawnFrisbee();
+        boom(frisbees[i].x, frisbees[i].y, '#ff8a3d', 8); frisbees.splice(i, 1); collected++; spawnFrisbee(); sfx.grab();
         if (collected >= target) { winRound(); return; }
+      }
+    }
+    // grab a bone → Woofa barks, the whole flock flees for a few seconds
+    for (let i = bones.length - 1; i >= 0; i--) {
+      if (dist(player.x, player.y, bones[i].x, bones[i].y) < player.r + bones[i].r + 2) {
+        boom(bones[i].x, bones[i].y, '#ffd23d', 18); bones.splice(i, 1); scareT = 250; shakeT = 6; sfx.bone(); sfx.bark(); toast('WOOFA BARKS! 🐕');
       }
     }
 
@@ -122,8 +156,9 @@
     for (const s of sheep) {
       s.wander -= dt;
       const dp = dist(s.x, s.y, player.x, player.y);
-      let tx, ty;
-      if (dp < 220) { tx = player.x; ty = player.y; }      // hunt the boy
+      let tx, ty, spd = s.speed;
+      if (scareT > 0) { tx = s.x * 2 - player.x; ty = s.y * 2 - player.y; spd = s.speed * 1.35; }   // scared → bolt away from the boy
+      else if (dp < 220) { tx = player.x; ty = player.y; }      // hunt the boy
       else {                                                // graze toward frisbees
         let bd = 1e9, bf = null;
         for (const f of frisbees) { const d = dist(s.x, s.y, f.x, f.y); if (d < bd) { bd = d; bf = f; } }
@@ -131,13 +166,13 @@
       }
       const a = Math.atan2(ty - s.y, tx - s.x) + (s.wander > 0 ? 0 : rand(-0.5, 0.5));
       if (s.wander <= 0) s.wander = rand(1, 3);
-      moveEntity(s, Math.cos(a) * s.speed * dt, Math.sin(a) * s.speed * dt);
-      // sheep eat frisbees
-      for (let i = frisbees.length - 1; i >= 0; i--) {
-        if (dist(s.x, s.y, frisbees[i].x, frisbees[i].y) < s.r + frisbees[i].r) { frisbees.splice(i, 1); spawnFrisbee(); }
+      moveEntity(s, Math.cos(a) * spd * dt, Math.sin(a) * spd * dt);
+      // sheep eat frisbees (not while fleeing)
+      if (scareT <= 0) for (let i = frisbees.length - 1; i >= 0; i--) {
+        if (dist(s.x, s.y, frisbees[i].x, frisbees[i].y) < s.r + frisbees[i].r) { frisbees.splice(i, 1); spawnFrisbee(); sfx.steal(); }
       }
-      // caught the boy?
-      if (invuln <= 0 && dp < s.r + player.r + 2) loseLife();
+      // caught the boy? (safe while the flock is scared)
+      if (scareT <= 0 && invuln <= 0 && dp < s.r + player.r + 2) loseLife();
     }
     if ((tick | 0) % 6 === 0) updateHud();
   }
@@ -157,7 +192,7 @@
   }
 
   function loseLife() {
-    lives--; invuln = 90;
+    lives--; invuln = 90; shakeT = 11; boom(player.x, player.y, '#e0503a', 16); sfx.caught();
     player.x = field.x + field.w / 2; player.y = field.y + field.h - 40;
     for (const s of sheep) { const a = Math.atan2(s.y - player.y, s.x - player.x); s.x += Math.cos(a) * 80; s.y += Math.sin(a) * 80; }
     updateHud();
@@ -166,38 +201,53 @@
   function winRound() {
     round++;
     if (round - 1 > best) { best = round - 1; localStorage.setItem(BEST_KEY, String(best)); }
-    toast('Round ' + round + '! 🐑');
+    sfx.round(); toast('Round ' + round + '! 🐑');
     startRound(); updateHud();
   }
 
   // ---------- render ----------
   function render() {
     ctx.fillStyle = '#0c1a10'; ctx.fillRect(0, 0, W, H);
+    const kx = shakeT > 0 ? rand(-shakeT, shakeT) * 0.6 : 0, ky = shakeT > 0 ? rand(-shakeT, shakeT) * 0.6 : 0;
+    ctx.save(); ctx.translate(kx, ky);
     // paddock grass
     ctx.fillStyle = '#2f5a34'; ctx.fillRect(field.x, field.y, field.w, field.h);
     ctx.strokeStyle = '#7a5a3a'; ctx.lineWidth = 6; ctx.strokeRect(field.x, field.y, field.w, field.h); // fence
-    // grass stripes
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     for (let y = field.y; y < field.y + field.h; y += 44) ctx.fillRect(field.x, y, field.w, 22);
-    if (!player) return;
-
-    // frisbees
-    for (const f of frisbees) {
-      const pr = f.r + Math.sin(tick / 12 + f.ph) * 0.8;
-      ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.ellipse(f.x, f.y, pr, pr * 0.5, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(f.x, f.y, pr * 0.55, pr * 0.28, 0, 0, 7); ctx.stroke();
+    if (player) {
+      // frisbees
+      for (const f of frisbees) {
+        const pr = f.r + Math.sin(tick / 12 + f.ph) * 0.8;
+        ctx.fillStyle = '#ff8a3d'; ctx.beginPath(); ctx.ellipse(f.x, f.y, pr, pr * 0.5, 0, 0, 7); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(f.x, f.y, pr * 0.55, pr * 0.28, 0, 0, 7); ctx.stroke();
+      }
+      // bones (Woofa's bark power-up)
+      for (const bn of bones) {
+        const yy = bn.y + Math.sin(tick / 10 + bn.ph) * 2;
+        const gl = 0.5 + Math.sin(tick / 6) * 0.3; ctx.fillStyle = 'rgba(255,210,61,' + gl * 0.4 + ')';
+        ctx.beginPath(); ctx.arc(bn.x, yy, bn.r + 6, 0, 7); ctx.fill();
+        ctx.font = (bn.r * 2) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🦴', bn.x, yy + 1);
+      }
+      // bales
+      for (const b of bales) {
+        ctx.fillStyle = '#d9b24a'; roundRect(b.x, b.y, b.w, b.h, 8); ctx.fill();
+        ctx.strokeStyle = '#a9822a'; ctx.lineWidth = 3; ctx.stroke();
+        ctx.strokeStyle = 'rgba(120,90,20,0.5)'; ctx.lineWidth = 2;
+        for (let yy = b.y + 8; yy < b.y + b.h - 4; yy += 9) { ctx.beginPath(); ctx.moveTo(b.x + 4, yy); ctx.lineTo(b.x + b.w - 4, yy); ctx.stroke(); }
+      }
+      // sheep
+      for (const s of sheep) drawSheep(s);
+      // fluff / burst particles
+      for (const p of particles) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c || '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      // player boy
+      drawBoy(player);
     }
-    // bales
-    for (const b of bales) {
-      ctx.fillStyle = '#d9b24a'; roundRect(b.x, b.y, b.w, b.h, 8); ctx.fill();
-      ctx.strokeStyle = '#a9822a'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.strokeStyle = 'rgba(120,90,20,0.5)'; ctx.lineWidth = 2;
-      for (let yy = b.y + 8; yy < b.y + b.h - 4; yy += 9) { ctx.beginPath(); ctx.moveTo(b.x + 4, yy); ctx.lineTo(b.x + b.w - 4, yy); ctx.stroke(); }
-    }
-    // sheep
-    for (const s of sheep) drawSheep(s);
-    // player boy
-    drawBoy(player);
+    ctx.restore();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    // scared-flock golden border pulse
+    if (scareT > 0) { ctx.strokeStyle = 'rgba(255,210,61,' + Math.min(0.55, scareT / 250 * 0.55) + ')'; ctx.lineWidth = 7; ctx.strokeRect(3, 3, W - 6, H - 6); }
   }
 
   function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
@@ -247,7 +297,7 @@
   const overScreen = document.getElementById('overScreen');
   function hideOverlays() { startScreen.classList.add('hidden'); overScreen.classList.add('hidden'); }
   function endGame() {
-    running = false;
+    running = false; sfx.over();
     document.getElementById('overRound').textContent = round;
     document.getElementById('overBest').textContent = best;
     setTimeout(() => overScreen.classList.remove('hidden'), 400);
@@ -267,7 +317,8 @@
 
   if (location.hash.indexOf('debug') !== -1) {
     window.__sheep = { reset, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return { running, collected, target, lives, round, sheep: sheep && sheep.length, frisbees: frisbees && frisbees.length, dead: !running }; },
+      info() { return { running, collected, target, lives, round, sheep: sheep && sheep.length, frisbees: frisbees && frisbees.length, bones: bones && bones.length, scareT: Math.round(scareT || 0), dead: !running }; },
+      forceBone() { bones.length = 0; spawnBone(); const b = bones[0]; if (!b) return 'no bone'; player.x = b.x; player.y = b.y; update(1); return { scareT: Math.round(scareT), bonesLeft: bones.length }; },
       steer(dx, dy) { joy.active = true; joy.ox = 0; joy.oy = 0; joy.x = dx * 60; joy.y = dy * 60; },
       px() { return player ? { x: player.x | 0, y: player.y | 0, lives } : null; },
       // definitive: drop the player onto a frisbee and step — collected must ++.
