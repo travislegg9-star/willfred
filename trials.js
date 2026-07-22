@@ -27,6 +27,17 @@
   const BEST_KEY = 'woofa_trials_best';
   let best = parseInt(localStorage.getItem(BEST_KEY) || '1', 10) || 1;
 
+  // ---------- sound ----------
+  let actx = null, master = null;
+  function ensureAudio() { try { if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination); } if (actx.state === 'suspended' && actx.resume) actx.resume(); } catch (e) { actx = null; } }
+  function beep(f, dur, type, vol, slideTo) { if (!actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = f; if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, actx.currentTime + dur); g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur + 0.02); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + dur + 0.04); } catch (e) {} }
+  const sfx = {
+    bark() { beep(220, 0.09, 'square', 0.06, 150); setTimeout(() => beep(180, 0.1, 'square', 0.05, 120), 70); },
+    baa() { beep(300, 0.14, 'sawtooth', 0.03, 260); }, chime() { beep(700, 0.08, 'triangle', 0.05); setTimeout(() => beep(1050, 0.12, 'triangle', 0.05), 70); },
+    win() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'triangle', 0.06), i * 110)); },
+    fail() { beep(200, 0.3, 'sawtooth', 0.06, 90); }, tick() { beep(900, 0.05, 'sine', 0.04); },
+  };
+
   let field = { x: 0, y: 0, w: 0, h: 0 };
   let pen = { x: 0, y: 0, w: 0, h: 0 };
   function layout() {
@@ -37,7 +48,8 @@
   const dog = { x: 0, y: 0, vx: 0, vy: 0, facing: 1, run: 0 };
   const target = { x: 0, y: 0, active: false };
   let sheep = [], obstacles = [];
-  let level = 1, timeLeft = 30, pennedCount = 0, total = 0, running = false, tick = 0, wonT = 0;
+  let level = 1, timeLeft = 30, pennedCount = 0, total = 0, running = false, tick = 0, wonT = 0, barkCD = 0, banner = null;
+  const barks = [];   // expanding bark rings for juice
 
   // ---------- setup ----------
   function startLevel(lvl) {
@@ -65,7 +77,9 @@
     obstacles = [];
     const oc = clamp(lvl - 2, 0, 4);
     for (let i = 0; i < oc; i++) obstacles.push({ x: rand(field.x + field.w * 0.35, field.x + field.w * 0.8), y: rand(field.y + 50, field.y + field.h - 50), r: rand(18, 30) });
-    pennedCount = 0; wonT = 0; running = true;
+    pennedCount = 0; wonT = 0; running = true; barkCD = 0; barks.length = 0;
+    ensureAudio();
+    banner = { txt: 'Trial ' + level + ' · ' + total + ' 🐑', t: 130 };
     hideOverlays(); updateHud();
   }
 
@@ -80,13 +94,27 @@
   canvas.addEventListener('mousedown', down);
   window.addEventListener('mousemove', move);
   window.addEventListener('mouseup', up);
+  // BARK — a loud woof that shoves every nearby sheep hard away from Woofa (short cooldown). A real herding tool.
+  function bark() {
+    if (!running || barkCD > 0) return;
+    barkCD = 80; sfx.bark();
+    barks.push({ x: dog.x, y: dog.y, r: 0 });
+    for (const s of sheep) { if (s.penned) continue; const d = dist(s.x, s.y, dog.x, dog.y); if (d < 200) { const f = (200 - d) / 200 * 7; const a = Math.atan2(s.y - dog.y, s.x - dog.x); s.vx += Math.cos(a) * f; s.vy += Math.sin(a) * f; s.baa = 30; } }
+  }
+  { const b = document.getElementById('barkBtn'); if (b) { const go = (e) => { e.preventDefault(); bark(); }; b.addEventListener('touchstart', go, { passive: false }); b.addEventListener('mousedown', go); } }
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space') bark(); });
 
   // ---------- update ----------
   function inPen(x, y) { return x > pen.x && x < pen.x + pen.w && y > pen.y && y < pen.y + pen.h; }
   function update(dt) {
     if (!running) { return; }
     tick += dt;
+    const prevT = timeLeft;
     timeLeft -= dt / 60;
+    if (timeLeft < 8 && Math.ceil(prevT) !== Math.ceil(timeLeft)) sfx.tick();   // urgent countdown ticks
+    if (barkCD > 0) barkCD -= dt;
+    if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
+    for (let i = barks.length - 1; i >= 0; i--) { barks[i].r += 6 * dt; if (barks[i].r > 210) barks.splice(i, 1); }
     if (timeLeft <= 0 && pennedCount < total) { timeLeft = 0; fail(); return; }
 
     // dog moves toward held target
@@ -135,7 +163,7 @@
       if (s.y > field.y + field.h - 12) { s.y = field.y + field.h - 12; s.vy = -Math.abs(s.vy) * 0.5; }
 
       // entered the pen → penned!
-      if (inPen(s.x, s.y)) { s.penned = true; s.vx = s.vy = 0; spawnPop(s.x, s.y); }
+      if (inPen(s.x, s.y)) { s.penned = true; s.vx = s.vy = 0; spawnPop(s.x, s.y); sfx.chime(); }
     }
 
     if (pennedCount >= total && wonT === 0) { wonT = tick; setTimeout(win, 700); }
@@ -154,7 +182,7 @@
   function spawnPop(x, y) { pops.push({ x, y, life: 1 }); }
 
   function win() {
-    running = false;
+    running = false; sfx.win();
     if (level + 1 > best) { best = level + 1; localStorage.setItem(BEST_KEY, String(best)); }
     const frac = timeLeft / Math.max(1, (Math.max(22, 40 - level * 1.5)));
     const stars = frac > 0.5 ? 3 : frac > 0.25 ? 2 : 1;
@@ -163,7 +191,7 @@
     document.getElementById('clearScreen').classList.remove('hidden');
   }
   function fail() {
-    running = false;
+    running = false; sfx.fail();
     document.getElementById('failPenned').textContent = pennedCount + '/' + total;
     document.getElementById('failBest').textContent = best;
     document.getElementById('failScreen').classList.remove('hidden');
@@ -185,8 +213,12 @@
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.font = '20px system-ui'; ctx.textAlign = 'center'; ctx.fillText('💚', p.x, p.y - (1 - p.life) * 20); } ctx.globalAlpha = 1;
     for (const s of sheep) drawSheep(s);
     drawDog();
+    // bark shockwave rings
+    for (const b of barks) { ctx.globalAlpha = clamp(1 - b.r / 210, 0, 0.7); ctx.strokeStyle = '#bfe6ff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.stroke(); } ctx.globalAlpha = 1;
     // held-target marker
     if (target.active) { ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(target.x, target.y, 16 + Math.sin(tick / 6) * 3, 0, 7); ctx.stroke(); }
+    // banner (level intro)
+    if (banner) { ctx.globalAlpha = clamp(banner.t / 40, 0, 1); ctx.fillStyle = 'rgba(11,18,32,0.55)'; ctx.fillRect(0, H * 0.4, W, 54); ctx.fillStyle = '#ffd23d'; ctx.font = '900 28px system-ui'; ctx.textAlign = 'center'; ctx.fillText(banner.txt, W / 2, H * 0.4 + 36); ctx.globalAlpha = 1; }
 
     for (let i = pops.length - 1; i >= 0; i--) { pops[i].life -= 0.03; if (pops[i].life <= 0) pops.splice(i, 1); }
   }
@@ -245,7 +277,9 @@
     document.getElementById('tlLevel').textContent = level;
     document.getElementById('tlPenned').textContent = pennedCount;
     document.getElementById('tlTotal').textContent = total;
-    document.getElementById('tlTime').textContent = Math.ceil(timeLeft);
+    const te = document.getElementById('tlTime'); te.textContent = Math.ceil(timeLeft);
+    const pill = te.closest('.hud-pill'); if (pill) pill.classList.toggle('urgent', running && timeLeft < 8);
+    const bb = document.getElementById('barkBtn'); if (bb) bb.disabled = barkCD > 0;
   }
   function hideOverlays() { for (const id of ['startScreen', 'clearScreen', 'failScreen']) document.getElementById(id).classList.add('hidden'); }
   document.getElementById('tlPlay').onclick = () => startLevel(1);

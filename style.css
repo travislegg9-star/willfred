@@ -331,6 +331,21 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
 .fuel-track { display: inline-block; width: 48px; height: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 6px; overflow: hidden; vertical-align: middle; }
 .fuel-fill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff5a5a, #ffd23d, #58e08a); border-radius: 6px; transition: width 0.2s ease; }
 
+/* ---------- Sheepdog Trials bark button ---------- */
+.bark-btn {
+  position: fixed; right: calc(18px + var(--safe-bottom)); bottom: calc(28px + var(--safe-bottom)); z-index: 25;
+  width: 92px; height: 92px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: radial-gradient(circle at 35% 30%, rgba(76, 201, 255, 0.4), rgba(11, 18, 32, 0.82));
+  color: var(--ink); font-size: 26px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  touch-action: none; user-select: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+}
+.bark-lbl { font-size: 12px; font-weight: 900; letter-spacing: 1px; }
+.bark-btn:active { transform: scale(0.92); }
+.bark-btn:disabled { opacity: 0.4; }
+.hud-pill.urgent { animation: urgentPulse 0.6s ease-in-out infinite; color: #ff6a6a; }
+@keyframes urgentPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+
 /* new game-card accents */
 .gc-sheep .gc-emoji { background: rgba(255, 255, 255, 0.10); }
 .gc-shear .gc-emoji { background: rgba(255, 210, 61, 0.14); }
