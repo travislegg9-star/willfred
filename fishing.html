@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Woofa Fishing</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <div id="fsHud" class="hud">
+    <div class="hud-pill">🐟 <span id="fsScore">0</span></div>
+    <div class="hud-pill">⏱️ <span id="fsTime">60</span>s</div>
+    <div class="hud-pill">🏆 <span id="fsBest">0</span></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- start -->
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo"><span class="logo-throw" style="animation:none">🎣</span><h1>WOOFA<span>FISHING</span></h1></div>
+      <p class="tagline"><b>Hold</b> to drop the hook &amp; slide it onto a fish. When you hook one, <b>tap fast</b> to reel it up! Big fish &amp; golden ones pay the most.</p>
+      <button class="btn btn-primary" id="fsPlay">GO FISHING</button>
+      <p class="credit">Watch for the golden fish ✨ — and the odd boot 🥾</p>
+    </div>
+  </div>
+
+  <!-- over -->
+  <div id="overScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>Reel in! 🎣</h2>
+      <p class="tagline">You caught <b id="overScore" style="color:var(--good)">0</b> worth of fish!<br>🐟 Fish landed: <b id="overCount" style="color:var(--accent-2)">0</b> · Best: <b id="overBest" style="color:var(--accent-2)">0</b></p>
+      <button class="btn btn-primary" id="fsAgain">Fish again</button>
+      <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
+    </div>
+  </div>
+
+  <script src="fishing.js"></script>
+</body>
+</html>
