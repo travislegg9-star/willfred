@@ -28,6 +28,21 @@
   const BEST_KEY = 'woofa_tractor_best';
   let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
 
+  // ---------- sound (procedural WebAudio) ----------
+  let actx = null, master = null, engOsc = null, engGain = null, muted = false;
+  function ensureAudio() { try { if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination); } if (actx.state === 'suspended' && actx.resume) actx.resume(); } catch (e) { actx = null; } }
+  function beep(f, dur, type, vol, slideTo) { if (!actx || muted) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = f; if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, actx.currentTime + dur); g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur + 0.02); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + dur + 0.04); } catch (e) {} }
+  const sfx = {
+    jump() { beep(280, 0.16, 'square', 0.05, 520); }, land() { beep(150, 0.1, 'sine', 0.06, 90); },
+    bale() { beep(720, 0.07, 'triangle', 0.05, 1040); }, fuel() { beep(500, 0.1, 'triangle', 0.05, 820); },
+    crash() { beep(130, 0.4, 'sawtooth', 0.09, 55); setTimeout(() => beep(90, 0.3, 'square', 0.06, 50), 60); },
+    flip() { beep(400, 0.1, 'square', 0.06, 760); setTimeout(() => beep(680, 0.12, 'triangle', 0.06, 1080), 80); setTimeout(() => beep(1000, 0.14, 'triangle', 0.05), 170); },
+    mile() { beep(560, 0.1, 'triangle', 0.05, 720); setTimeout(() => beep(860, 0.13, 'triangle', 0.05), 90); },
+  };
+  function engineStart() { if (!actx || engOsc || muted) return; try { engOsc = actx.createOscillator(); engGain = actx.createGain(); engOsc.type = 'sawtooth'; engOsc.frequency.value = 46; engGain.gain.value = 0.0; engOsc.connect(engGain); engGain.connect(master); engOsc.start(); } catch (e) {} }
+  function engineUpdate() { if (!engOsc) return; try { const tgt = 44 + Math.abs(tr.vx) * 7; engOsc.frequency.value += (tgt - engOsc.frequency.value) * 0.12; engGain.gain.value += (((input.gas && fuel > 0) ? 0.05 : 0.016) - engGain.gain.value) * 0.1; } catch (e) {} }
+  function engineStop() { if (engOsc) { try { engGain.gain.value = 0; engOsc.stop(); } catch (e) {} engOsc = null; } }
+
   // ---------- terrain ----------
   const GROUND_BASE = () => H * 0.66;
   function hillAmp(x) { return 26 + Math.min(x / 260, 80); }   // hills grow with distance
@@ -47,16 +62,19 @@
   let cam = { x: 0, y: 0 };
   let particles = [];
   let running = false, tick = 0, dist = 0, bales = 0, fuel = 1, flipT = 0, spawnedTo = 0;
+  let banner = null, lastMile = 0;
   const input = { gas: false, brake: false };
+  function showBanner(txt, col) { banner = { txt, col: col || '#ffd23d', t: 90 }; }
 
   function reset() {
-    tr.x = 120; tr.vx = 0; tr.vy = 0; tr.angle = 0; tr.angVel = 0; tr.onGround = true; tr.slopePrev = 0;
+    tr.x = 120; tr.vx = 0; tr.vy = 0; tr.angle = 0; tr.angVel = 0; tr.onGround = true; tr.slopePrev = 0; tr.airRot = 0;
     tr.y = groundY(tr.x) - RIDE_H;
     items = []; particles = []; spawnedTo = 0;
-    dist = 0; bales = 0; fuel = 1; flipT = 0; tick = 0;
+    dist = 0; bales = 0; fuel = 1; flipT = 0; tick = 0; banner = null; lastMile = 0;
     cam.x = 0; cam.y = 0;
     spawnAhead(2600);
     running = true;
+    ensureAudio(); engineStart();
     hideOverlays(); updateHud();
   }
 
@@ -110,29 +128,34 @@
       // crest launch — fly off the top of a hill at speed (only real crests at pace, and gentle so it lands easy)
       const s = slopeAt(tr.x);
       if (tr.vx > 4.6 && s > tr.slopePrev + 0.06 && s > 0.16) {
-        tr.onGround = false;
+        tr.onGround = false; tr.airRot = 0;
         tr.vy = clamp(-tr.vx * s * 0.85 - 1.0, -8, 0);
         tr.angVel = -tr.vx * 0.0009;   // slight nose-up
+        sfx.jump();
       }
       tr.slopePrev = s;
       // burn fuel while driving
       if ((gas || brake) && Math.abs(tr.vx) > 0.2) fuel = clamp(fuel - 0.00055 * dt, 0, 1);
       if (Math.abs(tr.vx) > 0.5 && (tick | 0) % 5 === 0) particles.push({ x: tr.x - Math.cos(tr.angle) * 24, y: tr.y + 14, vx: rand(-0.6, -0.2) - tr.vx * 0.1, vy: rand(-1, -0.3), life: 0.7, r: rand(3, 6), c: 'rgba(150,120,80,0.6)' });
     } else {
-      // airborne — gas noses up, brake noses down (classic hill-climb air control), with a gentle auto-level so casual driving lands fine
+      // airborne — hold BRAKE to flip forward (the trick!); otherwise it auto-levels so flooring it lands flat
       tr.vy += GRAV * dt;
       tr.x += tr.vx * dt; tr.y += tr.vy * dt;
-      if (gas) tr.angVel -= 0.0015 * dt;   // gentle nose-up (for style) — auto-level below keeps it from ever spinning out
-      if (brake) tr.angVel += 0.005 * dt;  // brake noses down for control
-      tr.angVel = lerp(tr.angVel, 0, 0.05 * dt);   // STRONG auto-level → flooring it still lands flat
-      tr.angVel = clamp(tr.angVel, -0.09, 0.09);
-      tr.angle += tr.angVel * dt;
+      if (brake) tr.angVel += 0.0075 * dt;                 // brake = intentional forward flip
+      else tr.angVel = lerp(tr.angVel, 0, 0.06 * dt);      // auto-level → gas-holders land flat
+      tr.angVel = clamp(tr.angVel, -0.1, 0.14);
+      tr.angle += tr.angVel * dt; tr.airRot += tr.angVel * dt;
       const gy = groundY(tr.x) - RIDE_H;
       if (tr.y >= gy) {
         tr.y = gy;
         const up = Math.abs(norm(tr.angle));
-        if (up < 1.5) { tr.onGround = true; tr.vy = 0; tr.angVel = 0; tr.angle = Math.atan2(groundY(tr.x + WHEEL_BASE / 2) - groundY(tr.x - WHEEL_BASE / 2), WHEEL_BASE); if (tr.vx > 5) { spawnParticles(tr.x, tr.y + 20, '#e7d6b0', 10); shake(); toast('Nice landing! 🚜'); } }
-        else { crash('flipped'); return; }
+        if (up < 1.5) {
+          tr.onGround = true; tr.vy = 0; tr.angVel = 0;
+          tr.angle = Math.atan2(groundY(tr.x + WHEEL_BASE / 2) - groundY(tr.x - WHEEL_BASE / 2), WHEEL_BASE);
+          spawnParticles(tr.x, tr.y + 20, '#e7d6b0', 12); shake(); sfx.land();
+          if (Math.abs(tr.airRot) >= 5.4) { bales += 3; showBanner('FRONTFLIP! +3🌾', '#ff8a3d'); spawnParticles(tr.x, tr.y - 12, '#ffd23d', 18); sfx.flip(); updateHud(); }
+        } else { crash('flipped'); return; }
+        tr.airRot = 0;
       }
     }
 
@@ -144,15 +167,18 @@
     if (fuel <= 0 && Math.abs(tr.vx) < 0.25 && tr.onGround) { crash('fuel'); return; }
 
     dist = Math.max(dist, Math.floor(tr.x / 10) - 11);
+    if (dist >= lastMile + 500) { lastMile = Math.floor(dist / 500) * 500; showBanner(lastMile + 'm! 🚩', '#58e08a'); sfx.mile(); }
     if (tr.x + 3000 > spawnedTo) spawnAhead(spawnedTo + 2600);
+    engineUpdate();
+    if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
 
     // collect items
     for (const it of items) {
       if (it.got) continue;
       if (Math.hypot(it.x - tr.x, it.y - tr.y) < 46) {
         it.got = true;
-        if (it.type === 'bale') { bales++; spawnParticles(it.x, it.y, '#e7c65a', 10); toast('🌾 +1'); }
-        else { fuel = clamp(fuel + 0.4, 0, 1); spawnParticles(it.x, it.y, '#58e08a', 10); toast('⛽ Fuel!'); }
+        if (it.type === 'bale') { bales++; spawnParticles(it.x, it.y, '#e7c65a', 10); toast('🌾 +1'); sfx.bale(); }
+        else { fuel = clamp(fuel + 0.4, 0, 1); spawnParticles(it.x, it.y, '#58e08a', 10); toast('⛽ Fuel!'); sfx.fuel(); }
       }
     }
     items = items.filter((it) => !it.got && it.x > tr.x - 400);
@@ -173,7 +199,7 @@
 
   function crash(cause) {
     running = false;
-    spawnParticles(tr.x, tr.y, '#ff6a6a', 20); shake();
+    spawnParticles(tr.x, tr.y, '#ff6a6a', 20); shake(); sfx.crash(); engineStop();
     if (dist > best) { best = dist; localStorage.setItem(BEST_KEY, String(best)); }
     document.getElementById('overTitle').textContent = cause === 'fuel' ? 'Out of fuel! ⛽' : 'Flipped it! 🚜💥';
     document.getElementById('overDist').textContent = dist;
@@ -203,6 +229,12 @@
     for (const p of particles) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(s2(p.x), sy2(p.y), p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     // tractor
     drawTractor();
+    // speed lines when hauling
+    if (running && Math.abs(tr.vx) > 7) { ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2; for (let i = 0; i < 5; i++) { const yy = (i * 90 + tick * 6) % H; const len = Math.abs(tr.vx) * 4; ctx.beginPath(); ctx.moveTo(W - (tick * 8 % W), yy); ctx.lineTo(W - (tick * 8 % W) - len, yy); ctx.stroke(); } }
+    // flip hint while airborne
+    if (running && !tr.onGround) { ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '800 14px system-ui'; ctx.textAlign = 'center'; ctx.fillText('hold REVERSE to flip! 🤸', W / 2, 96); }
+    // banner (milestone / flip)
+    if (banner) { ctx.globalAlpha = clamp(banner.t / 30, 0, 1); ctx.fillStyle = banner.col; ctx.font = '900 30px system-ui'; ctx.textAlign = 'center'; ctx.fillText(banner.txt, W / 2, H * 0.28); ctx.globalAlpha = 1; }
   }
   function drawLayer(par, amp) {
     ctx.beginPath(); ctx.moveTo(0, H);
