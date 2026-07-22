@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Woofa Sheepdog Trials</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <div id="tlHud" class="hud">
+    <div class="hud-pill">🏅 Trial <span id="tlLevel">1</span></div>
+    <div class="hud-pill">🐑 <span id="tlPenned">0</span>/<span id="tlTotal">0</span></div>
+    <div class="hud-pill">⏱️ <span id="tlTime">30</span>s</div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- start -->
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo"><span class="logo-throw" style="animation:none">🐕</span><h1>SHEEPDOG<span>TRIALS</span></h1></div>
+      <p class="tagline">You're Woofa. <b>Touch &amp; hold</b> to run around — the sheep flee from you. Push the whole flock through the gate into the pen before time's up!</p>
+      <button class="btn btn-primary" id="tlPlay">START TRIAL</button>
+      <p class="credit">Get behind them and steer them home 🐑</p>
+    </div>
+  </div>
+
+  <!-- level clear -->
+  <div id="clearScreen" class="overlay hidden">
+    <div class="panel">
+      <h2 id="clearTitle">Penned! 🐑</h2>
+      <div id="clearStars" style="font-size:38px;letter-spacing:6px;margin:6px 0"></div>
+      <p class="tagline" id="clearText">Nice mustering!</p>
+      <button class="btn btn-primary" id="tlNext">Next trial ›</button>
+    </div>
+  </div>
+
+  <!-- fail -->
+  <div id="failScreen" class="overlay hidden">
+    <div class="panel">
+      <h2>Time's up! ⏱️</h2>
+      <p class="tagline" id="failText">You penned <b id="failPenned" style="color:var(--good)">0</b> sheep. Best trial: <b id="failBest" style="color:var(--accent-2)">1</b></p>
+      <button class="btn btn-primary" id="tlRetry">Try again</button>
+      <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
+    </div>
+  </div>
+
+  <script src="trials.js"></script>
+</body>
+</html>
