@@ -684,30 +684,43 @@
       else if (!fleeing && !toPen && s.thirst > 42 && F.water > 0) { const t = nearestTrough('water', s.x, s.y); s.tx = t.x + rand(-12, 12); s.ty = t.y - 10; s.moveT = Math.max(s.moveT, 18); }
       else if (!fleeing && !toPen && s.moveT <= 0) { s.tx = rand(paddock.x + 30, paddock.x + paddock.w - 30); s.ty = rand(paddock.y + 30, paddock.y + paddock.h - 40); s.moveT = rand(60, 150); }
 
-      // if the chosen target is across a wall, steer to the nearest OPEN gate first (never at a diagonal into a corner)
-      for (const pen of F.pens) { const inNow = penInsideStrict(pen, s.x, s.y), inTgt = penInsideStrict(pen, s.tx, s.ty); if (inNow !== inTgt && pen.gateOpen) { let best = null, bd = 1e9; for (const side of gateSides(pen)) { const g = gateCenterFor(pen, side); const dd = dist(s.x, s.y, g.x, g.y); if (dd < bd) { bd = dd; best = g; } } if (best) { s.tx = best.x; s.ty = best.y; } } }
+      // keep sheep from ramming a fence: if the target is across a pen wall, route to the OPEN gate, or if the gate's SHUT stay on your own side
+      for (const pen of F.pens) {
+        const inNow = penInsideStrict(pen, s.x, s.y), inTgt = penInsideStrict(pen, s.tx, s.ty);
+        if (inNow === inTgt) continue;
+        if (pen.gateOpen) { let best = null, bd = 1e9; for (const side of gateSides(pen)) { const g = gateCenterFor(pen, side); const dd = dist(s.x, s.y, g.x, g.y); if (dd < bd) { bd = dd; best = g; } } if (best) { s.tx = best.x; s.ty = best.y; } }
+        else if (inNow) { s.tx = clamp(s.tx, pen.x + 12, pen.x + pen.w - 12); s.ty = clamp(s.ty, pen.y + 12, pen.y + pen.h - 12); s.moveT = Math.max(s.moveT, 24); }   // penned, gate shut → wander INSIDE, don't headbutt the fence
+        else { const cx = pen.x + pen.w / 2, cy = pen.y + pen.h / 2, ang = Math.atan2(s.y - cy, s.x - cx); s.tx = cx + Math.cos(ang) * (pen.w / 2 + 46); s.ty = cy + Math.sin(ang) * (pen.h / 2 + 46); }   // outside → don't push into a shut pen
+      }
 
       const spd = foxFlee ? 2.4 : toPen ? 2.0 : dogNudge ? 1.9 : (s.role === 'lamb' ? 0.9 : 0.6);
       const a = Math.atan2(s.ty - s.y, s.tx - s.x);
       if (dist(s.x, s.y, s.tx, s.ty) > 4) { s.y = clamp(s.y + Math.sin(a) * spd * dt, paddock.y + 24, paddock.y + paddock.h - 24); const b = fieldBounds(s.y); s.x = clamp(s.x + Math.cos(a) * spd * dt, b.left, b.right); if (Math.abs(Math.cos(a)) > 0.12) s.facing = Math.cos(a) >= 0 ? 1 : -1; }
 
       const sc = dscale(s.y), sep = (toPen ? 10 : 15) * sc, pf = toPen ? 0.18 : 0.5;   // pack tight & gentle while herding so newcomers aren't shoved back out
-      const cgx = Math.floor(s.x / SEPC), cgy = Math.floor(s.y / SEPC);
-      for (let gx = cgx - 1; gx <= cgx + 1; gx++) for (let gy = cgy - 1; gy <= cgy + 1; gy++) { const arr = sgrid.get(gx + ',' + gy); if (!arr) continue; for (const o of arr) { if (o === s) continue; const dd = dist(s.x, s.y, o.x, o.y); if (dd < sep && dd > 0.01) { const push = (sep - dd) * pf; const ang = Math.atan2(s.y - o.y, s.x - o.x); s.x += Math.cos(ang) * push; s.y += Math.sin(ang) * push; } } }
+      const cgx = Math.floor(s.x / SEPC), cgy = Math.floor(s.y / SEPC); let sdx = 0, sdy = 0;
+      for (let gx = cgx - 1; gx <= cgx + 1; gx++) for (let gy = cgy - 1; gy <= cgy + 1; gy++) { const arr = sgrid.get(gx + ',' + gy); if (!arr) continue; for (const o of arr) { if (o === s) continue; const dd = dist(s.x, s.y, o.x, o.y); if (dd < sep && dd > 0.01) { const push = (sep - dd) * pf; const ang = Math.atan2(s.y - o.y, s.x - o.x); sdx += Math.cos(ang) * push; sdy += Math.sin(ang) * push; } } }
+      { const smag = Math.hypot(sdx, sdy); if (smag > 3.5) { sdx = sdx / smag * 3.5; sdy = sdy / smag * 3.5; } s.x += sdx; s.y += sdy; }   // cap the shove so crowding can't fling a sheep through a fence
       repelFromPens(s, toPen ? 7 : 12);   // gentler walls while herding so sheep slide around to the gate
       { const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); }
       // sticky pen while Woofa is herding: the moment a sheep reaches the gate mouth it's captured and stays in,
       // so the flock accumulates instead of oscillating at the opening
       if (herdGoal) { const pn = herdGoal.pen; if (penInside(pn, s.x, s.y) || inGateZone(pn, s.x, s.y)) s._penned = true; if (s._penned && F.pens.indexOf(pn) >= 0) { s.x = clamp(s.x, pn.x + 7, pn.x + pn.w - 7); s.y = clamp(s.y, pn.y + 7, pn.y + pn.h - 7); } } else if (s._penned) s._penned = false;
-      // a shut stone pen firmly contains its flock — a fleeing sheep can never clip out and be caught
-      for (const p of F.pens) if (p.stone && !p.gateOpen && penInside(p, s.x, s.y)) { s.x = clamp(s.x, p.x + 6, p.x + p.w - 6); s.y = clamp(s.y, p.y + 6, p.y + p.h - 6); }
+      // a shut pen firmly contains its flock — no clipping out through a wall, even when crowded (open the gate to let them out)
+      for (const p of F.pens) if (!p.gateOpen && penInside(p, s.x, s.y)) { s.x = clamp(s.x, p.x + 6, p.x + p.w - 6); s.y = clamp(s.y, p.y + 6, p.y + p.h - 6); }
       // anti-jam: if a sheep barely moves for a moment while trying to, shove it straight through the nearest open gate
       if (dist(s.x, s.y, s.ax, s.ay) < 1.2) s.stuckT += dt; else { s.stuckT = 0; s.ax = s.x; s.ay = s.y; }
       if (s.stuckT > 20 && dist(s.x, s.y, s.tx, s.ty) > 8) {   // trying to move but jammed (not just grazing/drinking)
         let g = null, gd = 1e9;
         for (const p of F.pens) if (p.gateOpen) { const gc = gateCenter(p); const d = dist(s.x, s.y, gc.x, gc.y); if (d < 90 && d < gd) { gd = d; g = gc; } }
         if (g) { const a = Math.atan2(g.y - s.y, g.x - s.x); s.x += Math.cos(a) * 9; s.y += Math.sin(a) * 9; const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); s.stuckT = 0; s.ax = s.x; s.ay = s.y; }   // nudge toward/through the gate (kept in-bounds)
-        else s.stuckT = 12;
+        else {   // no open gate to reach — break the jam: retarget to open space (into the pen interior if penned) and give a small shove
+          let cpen = null; for (const p of F.pens) if (penInsideStrict(p, s.x, s.y)) { cpen = p; break; }
+          if (cpen) { s.tx = cpen.x + cpen.w / 2 + rand(-cpen.w * 0.25, cpen.w * 0.25); s.ty = cpen.y + cpen.h / 2 + rand(-cpen.h * 0.25, cpen.h * 0.25); }
+          else { s.tx = s.x + rand(-55, 55); s.ty = s.y + rand(-45, 45); }
+          const a = Math.atan2(s.ty - s.y, s.tx - s.x); s.x += Math.cos(a) * 6; s.y += Math.sin(a) * 6;
+          s.moveT = rand(50, 110); s.stuckT = 0; s.ax = s.x; s.ay = s.y;
+        }
       }
 
       { const ft = nearestTrough('feed', s.x, s.y); if (F.feed > 0 && s.hunger > 8 && dist(s.x, s.y, ft.x, ft.y) < 40) { s.hunger = clamp(s.hunger - 0.32 * dt, 0, 100); F.feed = clamp(F.feed - 0.05 * dt, 0, F.feedMax); if (s.hunger < 20 && s.heartT <= 0) s.heartT = 24; } }
@@ -1916,6 +1929,7 @@
       handInfo() { const s = shearSession; return s ? { hands: s.handHands, tail: s.handTail, idx: s.idx, sheared: s.handSheared, work: Math.round(s.handWork) } : null; },
       penInfo2(i) { const p = F.pens[i || 0]; return p ? { gateSide: p.gateSide, open: p.gateOpen, gw: Math.round(gateWidth(p)), doubleGone: !p.doubleGate ? true : gateSides(p).length === 1 } : null; },
       sheepOut(i) { const p = F.pens[i || 0]; if (!p) return null; return sheep.filter(s => !penInsideStrict(p, s.x, s.y)).length; },
+      jamStats() { let maxStuck = 0, jammed = 0; for (const s of sheep) { const st = s.stuckT || 0; maxStuck = Math.max(maxStuck, st); if (st > 55) jammed++; } return { maxStuck: Math.round(maxStuck), jammed, sheep: sheep.length }; },
       spawnBreed(b, wool) { const p = F.pens[0]; const ns = makeSheep({ breed: b, role: 'ewe', wool: wool == null ? 80 : wool }); if (p) { ns.x = p.x + p.w / 2; ns.y = p.y + p.h / 2; } sheep.push(ns); updateHud(); return ns.id; },
       shearTap() { shearDown({ x: W / 2, y: H / 2 }); }, shearStep(n) { for (let i = 0; i < (n || 1); i++) shearUpdate(1); }, shearRenderNow() { if (shearSession) shearRender(); }, buyShears, gear() { return F.shearGear; }, records() { return F.records; },
       grade(p) { return woolGrade(p); }, fireWorker, forceBoss() { const s = shearSession; if (s) { s.idx = s.queue.length; s.bossDone = false; beginCatch(true); } },
