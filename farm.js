@@ -207,7 +207,7 @@
       hunger: o.hunger != null ? o.hunger : rand(10, 30), thirst: o.thirst != null ? o.thirst : rand(10, 30),
       wool: o.wool != null ? o.wool : rand(0, 25), size: o.role === 'lamb' ? 0.4 : (o.size != null ? o.size : 0.85),
       age: o.role === 'lamb' ? 0 : 999, health: 100, starve: 0, baaT: 0, heartT: 0, face: rand(0, 6), breedCD: rand(600, 1200),
-      sick: !!o.sick, sickT: 0,
+      sick: !!o.sick, sickT: 0, stuckT: 0, ax: 0, ay: 0,
     };
   }
   function makeDog(kind) { return { kind, x: rand(paddock.x + 60, paddock.x + paddock.w - 60), y: rand(paddock.y + 40, paddock.y + paddock.h - 40), tx: 0, ty: 0, moveT: 0, zoom: 0, facing: 1, orbit: rand(0, 6), _fx: null }; }
@@ -265,8 +265,8 @@
   // the clear corridor through an open gate — no wall-repel here so sheep flow straight through
   function inGateZone(p, x, y) {
     if (!p.gateOpen) return false;
-    const hw = gateWidth(p) / 2 + 6;
-    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); if (side === 0 || side === 1) { if (Math.abs(x - gc.x) < hw && Math.abs(y - gc.y) < 28) return true; } else { if (Math.abs(y - gc.y) < hw && Math.abs(x - gc.x) < 28) return true; } }
+    const hw = gateWidth(p) / 2 + 9;
+    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); if (side === 0 || side === 1) { if (Math.abs(x - gc.x) < hw && Math.abs(y - gc.y) < 32) return true; } else { if (Math.abs(y - gc.y) < hw && Math.abs(x - gc.x) < 32) return true; } }
     return false;
   }
   function repelFromPens(e, buffer, stoneOnly) { if (!F.pens) return; for (const p of F.pens) { if (stoneOnly && !p.stone) continue; if (inGateZone(p, e.x, e.y)) continue; for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } } }
@@ -524,6 +524,14 @@
       if (herdGoal) { const pn = herdGoal.pen; if (penInside(pn, s.x, s.y) || inGateZone(pn, s.x, s.y)) s._penned = true; if (s._penned && F.pens.indexOf(pn) >= 0) { s.x = clamp(s.x, pn.x + 7, pn.x + pn.w - 7); s.y = clamp(s.y, pn.y + 7, pn.y + pn.h - 7); } } else if (s._penned) s._penned = false;
       // a shut stone pen firmly contains its flock — a fleeing sheep can never clip out and be caught
       for (const p of F.pens) if (p.stone && !p.gateOpen && penInside(p, s.x, s.y)) { s.x = clamp(s.x, p.x + 6, p.x + p.w - 6); s.y = clamp(s.y, p.y + 6, p.y + p.h - 6); }
+      // anti-jam: if a sheep barely moves for a moment while near an open gate, shove it straight through
+      if (dist(s.x, s.y, s.ax, s.ay) < 1.2) s.stuckT += dt; else { s.stuckT = 0; s.ax = s.x; s.ay = s.y; }
+      if (s.stuckT > 40 && dist(s.x, s.y, s.tx, s.ty) > 10) {   // trying to move but jammed (not just grazing/drinking)
+        let g = null, gd = 1e9;
+        for (const p of F.pens) if (p.gateOpen) for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); const d = dist(s.x, s.y, gc.x, gc.y); if (d < 55 && d < gd) { gd = d; g = gc; } }
+        if (g) { const a = Math.atan2(g.y - s.y, g.x - s.x); s.x += Math.cos(a) * 8; s.y += Math.sin(a) * 8; s.stuckT = 0; s.ax = s.x; s.ay = s.y; }   // nudge toward/through the gate
+        else s.stuckT = 20;
+      }
 
       if (F.feed > 0 && s.hunger > 8 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 40) { s.hunger = clamp(s.hunger - 0.32 * dt, 0, 100); F.feed = clamp(F.feed - 0.05 * dt, 0, 100); if (s.hunger < 20 && s.heartT <= 0) s.heartT = 24; }
       if (F.water > 0 && s.thirst > 8 && dist(s.x, s.y, waterTrough.x, waterTrough.y) < 40) { s.thirst = clamp(s.thirst - 0.32 * dt, 0, 100); F.water = clamp(F.water - 0.045 * dt, 0, 100); if (s.thirst < 20 && s.heartT <= 0) s.heartT = 24; if (Math.random() < 0.025 * dt) splash(waterTrough.x + rand(-8, 8), waterTrough.y - 3); }
@@ -1237,6 +1245,8 @@
       sheepInPen(i) { const p = F.pens[i]; if (!p) return 0; return sheep.filter(s => penInsideStrict(p, s.x, s.y)).length; },
       treeWood() { return F.plants.filter(p => p.type === 'tree').map(p => Math.round(p.wood)); }, rockStone() { return F.plants.filter(p => p.type === 'rock').map(p => Math.round(p.stone)); },
       putSheepIn(i) { const p = F.pens[i]; if (!p) return; for (const s of sheep) { s.x = p.x + p.w / 2 + rand(-p.w * 0.3, p.w * 0.3); s.y = p.y + p.h / 2 + rand(-p.h * 0.3, p.h * 0.3); } },
+      jamSheepAtGate(i) { const p = F.pens[i || 0], s = sheep[0]; if (!p || !s) return null; const g = gateCenterFor(p, p.gateSide); s.x = g.x + gateWidth(p) / 2 - 3; s.y = g.y - 3; s.tx = g.x; s.ty = g.y + 80; s.moveT = 200; s.stuckT = 0; s.ax = s.x; s.ay = s.y; return { x: Math.round(s.x), y: Math.round(s.y) }; },
+      sheepPos(i) { const s = sheep[i || 0]; return s ? { x: Math.round(s.x), y: Math.round(s.y) } : null; },
       tutorial: startTutorial, sampleEwes(n) { let e = 0; for (let i = 0; i < (n || 100); i++) if (rollRole() === 'ewe') e++; return e; },
       setDay(phase) { F.dayT = phase * DAY_LEN; }, night() { return nightAmt(); }, goal() { return goalInfo(); }, levelUpAll() { for (const w of workers) { w.level = 5; } syncWorkerJobs(); }, workXp() { for (const w of workers) gainXp(w); },
       setSeason(i) { F.seasonT = i * SEASON_LEN; }, setWeather(w) { F.weather = w; }, makeSick(n) { let c = 0; for (const s of sheep) { if (c >= (n || 1)) break; if (s.role !== 'lamb' && !s.sick) { s.sick = true; s.sickT = 0; c++; } } return c; }, callVet, packRaid: spawnPack,
