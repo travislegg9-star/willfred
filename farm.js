@@ -120,7 +120,7 @@
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
     shearGear: 1, records: { woolCrop: 0, bestShear: {} },
     dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
-    diff: null, sheepSeq: 0,
+    diff: null, sheepSeq: 0, shedHands: 0,
   });
   // stamp a fresh farm with its chosen difficulty: starting purse, flock size + cap
   function applyDiffStart(f) {
@@ -268,7 +268,7 @@
       breed: o.breed || 'normal', role: o.role || 'ewe', tx: 0, ty: 0, moveT: 0,
       hunger: o.hunger != null ? o.hunger : rand(10, 30), thirst: o.thirst != null ? o.thirst : rand(10, 30),
       wool: o.wool != null ? o.wool : rand(0, 25), size: o.role === 'lamb' ? 0.4 : (o.size != null ? o.size : 0.85),
-      age: o.role === 'lamb' ? 0 : 999, health: 100, starve: 0, baaT: 0, heartT: 0, face: rand(0, 6), breedCD: rand(600, 1200),
+      age: o.role === 'lamb' ? 0 : 999, health: 100, starve: 0, baaT: 0, heartT: 0, face: rand(0, 6), breedCD: rand(2200, 3800),
       sick: !!o.sick, sickT: 0, stuckT: 0, ax: 0, ay: 0, facing: -1,
       id: o.id != null ? o.id : nextSheepId(), name: o.name || pickSheepName(), born: o.born || nowMs(),
     };
@@ -300,8 +300,8 @@
 
   // ---------- pens / gates ----------
   const OPP = { 0: 1, 1: 0, 2: 3, 3: 2 };
-  function gateSides(p) { return p.doubleGate ? [p.gateSide, OPP[p.gateSide]] : [p.gateSide]; }
-  function gateWidth(p) { const side = (p.gateSide === 2 || p.gateSide === 3) ? p.h : p.w; return clamp(Math.min(90, side * 0.6), 46, Math.max(28, side - 8)); }   // wide, easy-to-flow gates
+  function gateSides(p) { return [p.gateSide]; }   // ONE swinging gate — no midpoint post to snag on
+  function gateWidth(p) { const side = (p.gateSide === 2 || p.gateSide === 3) ? p.h : p.w; return clamp(Math.min(110, side * 0.7), 58, Math.max(30, side - 6)); }   // nice wide, easy-flow gate
   function gateCenterFor(p, side) { switch (side) { case 1: return { x: p.x + p.w / 2, y: p.y }; case 2: return { x: p.x, y: p.y + p.h / 2 }; case 3: return { x: p.x + p.w, y: p.y + p.h / 2 }; default: return { x: p.x + p.w / 2, y: p.y + p.h }; } }
   function gateCenter(p) { return gateCenterFor(p, p.gateSide); }
   function gateSideDir(side) { return side === 0 ? { x: 0, y: 1 } : side === 1 ? { x: 0, y: -1 } : side === 2 ? { x: -1, y: 0 } : { x: 1, y: 0 }; }   // outward normal
@@ -328,11 +328,25 @@
   // the clear corridor through an open gate — no wall-repel here so sheep flow straight through
   function inGateZone(p, x, y) {
     if (!p.gateOpen) return false;
-    const hw = gateWidth(p) / 2 + 9;
-    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); if (side === 0 || side === 1) { if (Math.abs(x - gc.x) < hw && Math.abs(y - gc.y) < 32) return true; } else { if (Math.abs(y - gc.y) < hw && Math.abs(x - gc.x) < 32) return true; } }
+    const hw = gateWidth(p) / 2 + 16;   // generous clear funnel through the opening — sheep flow straight out
+    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); if (side === 0 || side === 1) { if (Math.abs(x - gc.x) < hw && Math.abs(y - gc.y) < 48) return true; } else { if (Math.abs(y - gc.y) < hw && Math.abs(x - gc.x) < 48) return true; } }
     return false;
   }
-  function repelFromPens(e, buffer, stoneOnly) { if (!F.pens) return; for (const p of F.pens) { if (stoneOnly && !p.stone) continue; if (inGateZone(p, e.x, e.y)) continue; for (const seg of penWalls(p)) { const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]); const d = dist(e.x, e.y, c.x, c.y); if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; } } } }
+  function repelFromPens(e, buffer, stoneOnly) {
+    if (!F.pens) return;
+    for (const p of F.pens) {
+      if (stoneOnly && !p.stone) continue;
+      if (inGateZone(p, e.x, e.y)) continue;
+      const gates = p.gateOpen ? gateSides(p).map(side => gateCenterFor(p, side)) : null;
+      const gclear = gateWidth(p) / 2 + 14;
+      for (const seg of penWalls(p)) {
+        const c = closestOnSeg(e.x, e.y, seg[0], seg[1], seg[2], seg[3]);
+        if (gates) { let post = false; for (const gc of gates) if (Math.abs(c.x - gc.x) < gclear && Math.abs(c.y - gc.y) < gclear) { post = true; break; } if (post) continue; }   // never repel off the gate posts — that's what snagged sheep
+        const d = dist(e.x, e.y, c.x, c.y);
+        if (d < buffer && d > 0.001) { const push = buffer - d; e.x += (e.x - c.x) / d * push; e.y += (e.y - c.y) / d * push; }
+      }
+    }
+  }
   const penInside = (p, x, y) => x > p.x - 4 && x < p.x + p.w + 4 && y > p.y - 4 && y < p.y + p.h + 4;
   const penInsideStrict = (p, x, y) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h;
   function insideAnyPen(x, y) { for (const p of F.pens) if (penInsideStrict(p, x, y)) return p; return null; }
@@ -431,6 +445,7 @@
     rebuildDogs(); rebuildWorkers(); initGrass(); initMotes();
     tractor = F.upgrades && F.upgrades.tractor ? makeTractor() : null;
     if (typeof F.expand !== 'number') F.expand = 0;
+    if (typeof F.shedHands !== 'number') F.shedHands = 0;
     applyOffline(); running = true; hideOverlays(); updateHud(); syncMute();
     zoom = 1; layout(); centerCamOn(paddock.x + paddock.w / 2, paddock.y + paddock.h / 2); camReady = true;   // start looking at the middle of the farm
     if (!F.tutorialDone) startTutorial();
@@ -473,7 +488,6 @@
       const tk = penTick(sp); if (dist(p.x, p.y, tk.x, tk.y) < 16) { selectedPen = null; toast('Pen saved'); sfx.pop(); persist(); return; }
       const scr = penScrap(sp); if (dist(p.x, p.y, scr.x, scr.y) < 16) { scrapPen(sp); return; }
       if (!sp.stone) { const st = penStoneBtn(sp); if (dist(p.x, p.y, st.x, st.y) < 16) { upgradePenStone(sp); return; } }
-      { const db = penDoubleBtn(sp); if (dist(p.x, p.y, db.x, db.y) < 16) { sp.doubleGate = !sp.doubleGate; toast(sp.doubleGate ? '⇄ Double gate — a second opening!' : 'Single gate'); sfx.pop(); persist(); return; } }
       for (const c of penCorners(sp)) if (dist(p.x, p.y, c.x, c.y) < 18) { drag = { type: 'resize', ref: sp, corner: c.k }; return; }
       const side = wallMidHit(sp, p.x, p.y); if (side >= 0 && side !== sp.gateSide) { sp.gateSide = side; toast('Gate moved'); sfx.pop(); persist(); return; }
       if (penInside(sp, p.x, p.y)) { drag = { type: 'pen', ref: sp, ox: p.x - sp.x, oy: p.y - sp.y }; return; }
@@ -620,7 +634,7 @@
       if (s.role !== 'lamb') {
         const grazing = !snowing && (grass.some(gr => gr.amt > 0.2 && dist(s.x, s.y, gr.x, gr.y) < 15) || F.plants.some(pl => pl.type === 'bush' && pl.amt > 0.2 && dist(s.x, s.y, pl.x, pl.y) < 20));
         const fed = F.feed > 0 || grazing, watered = F.water > 0;
-        const rate = 0.015 * (s.sick ? 0.15 : 1) * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
+        const rate = 0.0118 * (s.sick ? 0.15 : 1) * (fed ? 1 : 0.3) * (watered ? 1 : 0.45) * (0.5 + s.health / 200) * (1 + dogBonus() + houseWoolBonus());
         s.wool = clamp(s.wool + rate * dt, 0, 100);
         if (fed && s.size < 1) s.size = clamp(s.size + 0.00012 * dt, 0.85, 1);
       } else { s.age += dt; if (s.age > 900) { s.role = rollRole(); s.size = 0.85; toast('🐑 A lamb grew up!'); pop(s.x, s.y, '🐑', '#fff'); } }
@@ -662,13 +676,13 @@
       if (herdGoal) { const pn = herdGoal.pen; if (penInside(pn, s.x, s.y) || inGateZone(pn, s.x, s.y)) s._penned = true; if (s._penned && F.pens.indexOf(pn) >= 0) { s.x = clamp(s.x, pn.x + 7, pn.x + pn.w - 7); s.y = clamp(s.y, pn.y + 7, pn.y + pn.h - 7); } } else if (s._penned) s._penned = false;
       // a shut stone pen firmly contains its flock — a fleeing sheep can never clip out and be caught
       for (const p of F.pens) if (p.stone && !p.gateOpen && penInside(p, s.x, s.y)) { s.x = clamp(s.x, p.x + 6, p.x + p.w - 6); s.y = clamp(s.y, p.y + 6, p.y + p.h - 6); }
-      // anti-jam: if a sheep barely moves for a moment while near an open gate, shove it straight through
+      // anti-jam: if a sheep barely moves for a moment while trying to, shove it straight through the nearest open gate
       if (dist(s.x, s.y, s.ax, s.ay) < 1.2) s.stuckT += dt; else { s.stuckT = 0; s.ax = s.x; s.ay = s.y; }
-      if (s.stuckT > 40 && dist(s.x, s.y, s.tx, s.ty) > 10) {   // trying to move but jammed (not just grazing/drinking)
+      if (s.stuckT > 20 && dist(s.x, s.y, s.tx, s.ty) > 8) {   // trying to move but jammed (not just grazing/drinking)
         let g = null, gd = 1e9;
-        for (const p of F.pens) if (p.gateOpen) for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); const d = dist(s.x, s.y, gc.x, gc.y); if (d < 55 && d < gd) { gd = d; g = gc; } }
-        if (g) { const a = Math.atan2(g.y - s.y, g.x - s.x); s.x += Math.cos(a) * 8; s.y += Math.sin(a) * 8; s.stuckT = 0; s.ax = s.x; s.ay = s.y; }   // nudge toward/through the gate
-        else s.stuckT = 20;
+        for (const p of F.pens) if (p.gateOpen) { const gc = gateCenter(p); const d = dist(s.x, s.y, gc.x, gc.y); if (d < 90 && d < gd) { gd = d; g = gc; } }
+        if (g) { const a = Math.atan2(g.y - s.y, g.x - s.x); s.x += Math.cos(a) * 9; s.y += Math.sin(a) * 9; const b = fieldBounds(s.y); s.x = clamp(s.x, b.left, b.right); s.y = clamp(s.y, paddock.y + 24, paddock.y + paddock.h - 24); s.stuckT = 0; s.ax = s.x; s.ay = s.y; }   // nudge toward/through the gate (kept in-bounds)
+        else s.stuckT = 12;
       }
 
       if (F.feed > 0 && s.hunger > 8 && dist(s.x, s.y, feedTrough.x, feedTrough.y) < 40) { s.hunger = clamp(s.hunger - 0.32 * dt, 0, 100); F.feed = clamp(F.feed - 0.05 * dt, 0, 100); if (s.hunger < 20 && s.heartT <= 0) s.heartT = 24; }
@@ -685,9 +699,9 @@
 
     breedTimer -= dt;
     if (breedTimer <= 0) {
-      breedTimer = rand(2200, 3600) / curDiff().breed;
+      breedTimer = rand(4400, 7000) / curDiff().breed;   // calmer breeding — flock grows steadily, not silly-fast
       const rams = sheep.filter(s => s.role === 'ram' && s.health > 60), ewes = sheep.filter(s => s.role === 'ewe' && s.health > 60 && s.breedCD <= 0);
-      if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(2200, 3400); const lamb = makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' }); sheep.push(lamb); toast('💕 ' + mum.name + ' had a lamb — ' + lamb.name + '!'); pop(lamb.x, lamb.y - 14, lamb.name, '#ffd23d'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
+      if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(5000, 7600); const lamb = makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' }); sheep.push(lamb); toast('💕 ' + mum.name + ' had a lamb — ' + lamb.name + '!'); pop(lamb.x, lamb.y - 14, lamb.name, '#ffd23d'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
     }
 
     predTimer -= dt;
@@ -761,7 +775,7 @@
       w.cd -= dt; w.moveT -= dt;
       const lb = workerSpeedMul(w), spd = base * lb, cdMul = baseCd / lb;   // levelled-up hands are faster
       if (w.job === 'shear') {
-        let tgt = null, bd = 1e9; for (const s of sheep) if (s.role !== 'lamb' && s.wool >= 100) { const d = dist(w.x, w.y, s.x, s.y); if (d < bd) { bd = d; tgt = s; } }
+        let tgt = null, bd = 1e9; for (const s of sheep) if (s.role !== 'lamb' && s.wool >= 80) { const d = dist(w.x, w.y, s.x, s.y); if (d < bd) { bd = d; tgt = s; } }   // auto-shear ready sheep (fire the Shepherd to grade them yourself in the shed)
         if (tgt) { w.tx = tgt.x; w.ty = tgt.y + 4; if (bd < 15 && w.cd <= 0) { const val = shearValue(tgt); F.wool += val; tgt.wool = 0; tgt.baaT = 40; tgt.heartT = 24; spawnFluff(tgt.x, tgt.y); pop(tgt.x, tgt.y - 12, '+' + val + '🧺', '#fff5c8'); sfx.shear(); w.cd = 45 * cdMul; gainXp(w); updateHud(); } }
         else idleNear(w, house.x + 30, house.y + 40);
       } else if (w.job === 'haul') {
@@ -806,6 +820,7 @@
       totalWool: 0, earned: 0, record: false, grades: [], combo: 0, bestCombo: 0,
       tally: { premium: 0, good: 0, store: 0, oddments: 0 }, bossDone: false, trophy: false,
       cx: W / 2, cy: H * 0.54, rx: 168, ry: 118, breed: 'normal', tufts: [], total: 0, gone: 0, boss: false,
+      handHands: F.shedHands || 0, handTail: list.length, handWork: 0, handSheared: 0,
     };
     fluff.length = 0; pops.length = 0; herdGoal = null;
     syncShearUI(true); sfx.pop();
@@ -838,7 +853,7 @@
   }
   function shearDown(p) {
     if (!shearSession) return; const s = shearSession;
-    if (s.phase === 'intro') { beginCatch(false); return; }
+    if (s.phase === 'intro') { const b = shearIntroButtons(); if (inRect(p, b.hire)) { hireShedHand(); return; } if (inRect(p, b.fire)) { fireShedHand(); return; } beginCatch(false); return; }
     if (s.phase === 'catch') { tryCatch(p.x, p.y); return; }
     if (s.phase === 'grade') { advanceAfterGrade(); return; }
     if (s.phase === 'summary') { s.phase = 'cutscene'; s.cutT = 0; return; }
@@ -847,6 +862,37 @@
   }
   function shearMove(p) { if (!shearSession) return; shearSession.clip.x = p.x; shearSession.clip.y = p.y; }
   function shearUp() { if (shearSession) shearSession.clip.down = false; }
+  // shed hands: hired helpers who shear the queue from the BACK while you work the front
+  function handShearOne() {
+    const s = shearSession, sh = s.queue[s.handTail - 1]; if (!sh) { s.handTail--; s.handWork = 0; return; }
+    const grade = woolGrade(sh.wool || 0);
+    const got = Math.max(1, Math.round(shearValue(sh) * shearGearInfo().woolMult * (0.4 + 0.6 * clamp((sh.wool || 0) / 100, 0, 1)) * grade.mult * 0.85));
+    s.totalWool += got; s.handSheared++; s.tally[grade.key] = (s.tally[grade.key] || 0) + 1;
+    if (!sh.boss) { sh.wool = 0; sh.baaT = 30; }
+    s.handTail--; s.handWork = 0;
+    pop(W * 0.15, H * 0.72, '🧑‍🌾 +' + got + '🧺', '#8fe08a'); sfx.shear();
+  }
+  const SHED_HAND_COST = 220;
+  function hireShedHand() {
+    if ((F.shedHands || 0) >= 2) { toast('Max 2 shed hands'); sfx.err(); return; }
+    if (F.money < SHED_HAND_COST) { toast('Need $' + SHED_HAND_COST + ' to hire a shed hand'); sfx.err(); return; }
+    F.money -= SHED_HAND_COST; F.shedHands = (F.shedHands || 0) + 1; if (shearSession) shearSession.handHands = F.shedHands;
+    toast('🧑‍🌾 Shed hand hired! They shear in the background.'); sfx.up(); persist();
+  }
+  function fireShedHand() {
+    if ((F.shedHands || 0) <= 0) { toast('No shed hands to fire'); sfx.err(); return; }
+    F.shedHands--; if (shearSession) shearSession.handHands = F.shedHands; F.money += 60;
+    toast('👋 Shed hand let go (+$60)'); sfx.pop(); persist();
+  }
+  function shearIntroButtons() {
+    const cy = H * 0.68;
+    return {
+      hire: { x: W / 2 - 168, y: cy, w: 158, h: 44 },
+      fire: { x: W / 2 + 10, y: cy, w: 158, h: 44 },
+      start: { x: W / 2 - 90, y: H * 0.8, w: 180, h: 50 },
+    };
+  }
+  const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
   function tryCatch(px, py) {
     const s = shearSession, c = s.catch; if (!c || c.caught) return;
     if (Math.hypot(px - c.x, py - c.y) < c.hitR) {
@@ -858,7 +904,11 @@
   }
   function shearUpdate(dt) {
     const s = shearSession; if (!s) return; s.t += dt; if (s.flashT > 0) s.flashT -= dt;
-    if (s.phase === 'intro') { s.introT += dt; if (s.introT > 165) beginCatch(false); }
+    // shed hands auto-shear from the back of the queue while you work the front
+    if (s.handHands > 0 && !s.boss && (s.phase === 'catch' || s.phase === 'shearing' || s.phase === 'grade')) {
+      if (s.handTail - 1 > s.idx) { const sh = s.queue[s.handTail - 1], cost = (SHEAR_PAR[sh.breed] || 6) * 60; s.handWork += dt * s.handHands; if (s.handWork >= cost) handShearOne(); }
+    }
+    if (s.phase === 'intro') { s.introT += dt; /* wait for a tap so you can hire/fire hands first */ }
     else if (s.phase === 'catch') {
       const c = s.catch; c.t += dt; c.ring = (c.ring + dt * 0.035) % 1;
       const spd = 1 + c.dodges * 0.1;
@@ -921,8 +971,8 @@
     const s = shearSession;
     if (s.boss) { finishSession(); return; }
     s.idx++;
-    if (s.idx < s.queue.length) beginCatch(false);
-    else if (!s.bossDone && s.queue.length >= 3) beginCatch(true);   // finale BOSS after a decent muster
+    if (s.idx < s.handTail) beginCatch(false);                        // still sheep left for you (hands take the rest)
+    else if (!s.bossDone && s.queue.length >= 3) beginCatch(true);    // finale BOSS after a decent muster
     else finishSession();
   }
   function finishSession() {
@@ -1088,6 +1138,23 @@
   function shade(hex, amt) { let h = String(hex).replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); let r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16); const t = amt < 0 ? 0 : 255, p = Math.abs(amt) / 100; r = Math.round((t - r) * p) + r; g = Math.round((t - g) * p) + g; b = Math.round((t - b) * p) + b; return '#' + [r, g, b].map(v => clamp(v, 0, 255).toString(16).padStart(2, '0')).join(''); }
   function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
+  function drawSwingGate(p) {
+    const side = p.gateSide, gc = gateCenterFor(p, side), gw = gateWidth(p), horiz = (side === 0 || side === 1);
+    let hinge, baseAng, outSign;
+    if (side === 0) { hinge = { x: gc.x - gw / 2, y: gc.y }; baseAng = 0; outSign = 1; }
+    else if (side === 1) { hinge = { x: gc.x - gw / 2, y: gc.y }; baseAng = 0; outSign = -1; }
+    else if (side === 2) { hinge = { x: gc.x, y: gc.y - gw / 2 }; baseAng = Math.PI / 2; outSign = -1; }
+    else { hinge = { x: gc.x, y: gc.y - gw / 2 }; baseAng = Math.PI / 2; outSign = 1; }
+    const swing = p.gateOpen ? outSign * 1.15 : 0;   // swung wide open, or across the gap when shut
+    ctx.save(); ctx.translate(hinge.x, hinge.y); ctx.rotate(baseAng + swing);
+    ctx.strokeStyle = p.gateOpen ? '#6fce7a' : '#c86a3a'; ctx.lineWidth = p.stone ? 6 : 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(gw, 0); ctx.stroke();
+    ctx.lineWidth = 2; for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(gw * i / 4, -5); ctx.lineTo(gw * i / 4, 5); ctx.stroke(); }
+    ctx.lineCap = 'butt'; ctx.restore();
+    ctx.fillStyle = '#4a3620'; ctx.beginPath(); ctx.arc(hinge.x, hinge.y, 4, 0, 7); ctx.fill();   // hinge post
+    ctx.fillStyle = p.gateOpen ? '#58e08a' : '#c86a3a'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(p.gateOpen ? 'open' : '🔒 shut', gc.x, gc.y + (side === 1 ? -10 : side === 0 ? 15 : 4));
+  }
   function drawPen(p, sel) {
     ctx.fillStyle = sel ? 'rgba(88,224,138,0.10)' : p.stone ? 'rgba(200,205,210,0.06)' : 'rgba(255,255,255,0.05)'; ctx.fillRect(p.x, p.y, p.w, p.h);
     if (p.stone) {
@@ -1098,16 +1165,15 @@
       ctx.strokeStyle = sel ? '#58e08a' : '#8a6a3a'; ctx.lineWidth = sel ? 3.5 : 3; ctx.beginPath(); for (const seg of penWalls(p)) { ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); } ctx.stroke();
       ctx.fillStyle = '#6a4f28'; for (let px = p.x; px <= p.x + p.w; px += 30) { ctx.fillRect(px - 1.5, p.y - 4, 3, 8); ctx.fillRect(px - 1.5, p.y + p.h - 4, 3, 8); }
     }
-    for (const side of gateSides(p)) { const gc = gateCenterFor(p, side); ctx.fillStyle = p.gateOpen ? '#58e08a' : '#c86a3a'; ctx.beginPath(); ctx.arc(gc.x, gc.y, 6, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.fillText(p.gateOpen ? 'gate' : 'shut', gc.x, gc.y + (side === 1 ? -10 : 14)); }
+    drawSwingGate(p);
     if (p.stone) { ctx.fillStyle = 'rgba(200,205,210,0.9)'; ctx.font = '700 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🛡️ stone', p.x + 22, p.y + 12); }
     if (sel) {
       ctx.fillStyle = '#58e08a'; for (const c of penCorners(p)) { roundRect(c.x - 6, c.y - 6, 12, 12, 3); ctx.fill(); }
-      const tk = penTick(p), scr = penScrap(p), db = penDoubleBtn(p);
+      const tk = penTick(p), scr = penScrap(p);
       ctx.fillStyle = '#2fbf6a'; ctx.beginPath(); ctx.arc(tk.x, tk.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 17px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✓', tk.x, tk.y + 6);
       ctx.fillStyle = '#d94a3a'; ctx.beginPath(); ctx.arc(scr.x, scr.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 16px system-ui'; ctx.fillText('✕', scr.x, scr.y + 5);
-      ctx.fillStyle = p.doubleGate ? '#3a8ad0' : '#5a6f86'; ctx.beginPath(); ctx.arc(db.x, db.y, 15, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = '900 15px system-ui'; ctx.fillText('⇄', db.x, db.y + 5);
       if (!p.stone) { const st = penStoneBtn(p); ctx.fillStyle = '#8a8f96'; ctx.beginPath(); ctx.arc(st.x, st.y, 15, 0, 7); ctx.fill(); ctx.font = '14px system-ui'; ctx.fillText('🧱', st.x, st.y + 5); }
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('▢ resize · 🧱 stone · ⇄ double-gate · move gate: tap a wall', p.x + p.w / 2, p.y + p.h + 16);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '700 10px system-ui'; ctx.fillText('▢ resize · 🧱 stone · move the gate: tap a wall', p.x + p.w / 2, p.y + p.h + 16);
     }
   }
   function drawTrough(t, col, level, ic) { const sc = dscale(t.y); ctx.save(); ctx.translate(t.x, t.y); ctx.scale(sc, sc); ctx.fillStyle = '#7a5a3a'; roundRect(-22, -8, 44, 16, 4); ctx.fill(); const surY = -6 + (12 - level / 100 * 12); ctx.fillStyle = col; roundRect(-19, surY, 38, level / 100 * 12, 3); ctx.fill(); if (level > 5) { ctx.globalAlpha = 0.45; ctx.fillStyle = '#ffffff'; const shx = Math.sin(tick / 14 + t.x * 0.1) * 8; ctx.beginPath(); ctx.ellipse(shx, surY + 1.6, 7, 1.4, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; } ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; roundRect(-22, -8, 44, 16, 4); ctx.stroke(); ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.fillText(ic, 0, -12); ctx.restore(); }
@@ -1381,19 +1447,40 @@
       const rec = (s.breedRec != null) ? ('🏆 best ' + s.breedRec.toFixed(1) + 's') : '🏆 no time yet';
       ctx.fillText((BREED_LABEL[s.breed] || '') + ' sheep  ·  ' + rec + '  ·  gun ' + (s.par || 6) + 's', W / 2, 138);
     }
+    // shed hands working in the background
+    if (s.handHands > 0 && !s.boss && s.phase !== 'summary' && s.phase !== 'cutscene') {
+      const remaining = Math.max(0, s.handTail - s.idx - 1), bx = 10, by = H * 0.64;
+      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(11,18,32,0.66)'; roundRect(bx, by, 182, 48, 10); ctx.fill();
+      ctx.fillStyle = '#8fe08a'; ctx.font = '900 13px system-ui'; ctx.fillText('🧑‍🌾 ×' + s.handHands + '  shearing…', bx + 10, by + 17);
+      ctx.fillStyle = '#cfe0ff'; ctx.font = '700 11px system-ui'; ctx.fillText(s.handSheared + ' done  ·  ' + remaining + ' in the back', bx + 10, by + 32);
+      if (remaining > 0) { const sh = s.queue[s.handTail - 1], cost = (SHEAR_PAR[sh.breed] || 6) * 60; ctx.fillStyle = 'rgba(255,255,255,0.18)'; roundRect(bx + 10, by + 39, 162, 4, 2); ctx.fill(); ctx.fillStyle = '#8fe08a'; roundRect(bx + 10, by + 39, 162 * clamp(s.handWork / cost, 0, 1), 4, 2); ctx.fill(); }
+      ctx.textAlign = 'center';
+    }
+  }
+  function drawShedBtn(r, label, col, dim) {
+    ctx.globalAlpha = dim ? 0.4 : 1;
+    ctx.fillStyle = col; roundRect(r.x, r.y, r.w, r.h, 12); ctx.fill();
+    ctx.fillStyle = '#12100a'; ctx.font = '900 16px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2); ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
   }
   function drawShearIntro(s) {
-    ctx.fillStyle = 'rgba(6,10,20,0.5)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffd23d'; ctx.font = '900 38px system-ui'; ctx.fillText('✂️ SHEARING SHED', W / 2, H * 0.3);
-    ctx.fillStyle = '#fff'; ctx.font = '800 17px system-ui'; ctx.fillText('Catch each sheep, then shear it FAST!', W / 2, H * 0.3 + 38);
-    ctx.fillStyle = '#8fe08a'; ctx.font = '800 15px system-ui'; ctx.fillText('★★★ Best grade at ~80% wool  ·  ⏱️ beat the gun time ★★★', W / 2, H * 0.3 + 68);
-    // your best times so far
+    ctx.fillStyle = 'rgba(6,10,20,0.55)'; ctx.fillRect(0, 0, W, H); ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd23d'; ctx.font = '900 36px system-ui'; ctx.fillText('✂️ SHEARING SHED', W / 2, H * 0.16);
+    ctx.fillStyle = '#fff'; ctx.font = '800 16px system-ui'; ctx.fillText('Catch each sheep, then shear it FAST!', W / 2, H * 0.16 + 32);
+    ctx.fillStyle = '#8fe08a'; ctx.font = '800 14px system-ui'; ctx.fillText('★★★ Best grade at ~80% wool  ·  ⏱️ beat the gun time ★★★', W / 2, H * 0.16 + 58);
+    // best times board
     const bs = F.records.bestShear || {}, breeds = ['normal', 'black', 'merino', 'golden'].filter(b => bs[b] != null);
-    ctx.fillStyle = '#ffd23d'; ctx.font = '900 16px system-ui'; ctx.fillText('🏆 YOUR BEST TIMES', W / 2, H * 0.3 + 104);
-    ctx.font = '800 15px system-ui'; ctx.fillStyle = '#eaf0ff';
-    if (breeds.length) { let ry = H * 0.3 + 130; for (const b of breeds) { ctx.fillText(BREED_ICON[b] + ' ' + BREED_LABEL[b] + ': ' + bs[b].toFixed(1) + 's   (gun ' + SHEAR_PAR[b] + 's)', W / 2, ry); ry += 24; } }
-    else { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 14px system-ui'; ctx.fillText('none yet — shear fast to set a record!', W / 2, H * 0.3 + 130); }
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '700 14px system-ui'; ctx.fillText('tap to start', W / 2, H * 0.86);
+    ctx.fillStyle = '#ffd23d'; ctx.font = '900 15px system-ui'; ctx.fillText('🏆 YOUR BEST TIMES', W / 2, H * 0.16 + 90);
+    ctx.font = '800 14px system-ui';
+    if (breeds.length) { let ry = H * 0.16 + 114; for (const b of breeds) { ctx.fillStyle = '#eaf0ff'; ctx.fillText(BREED_ICON[b] + ' ' + BREED_LABEL[b] + ': ' + bs[b].toFixed(1) + 's  (gun ' + SHEAR_PAR[b] + 's)', W / 2, ry); ry += 22; } }
+    else { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 13px system-ui'; ctx.fillText('none yet — shear fast to set a record!', W / 2, H * 0.16 + 114); }
+    // shed hands
+    ctx.fillStyle = '#cfe0ff'; ctx.font = '900 16px system-ui'; ctx.fillText('🧑‍🌾 Shed Hands: ' + (F.shedHands || 0) + '/2', W / 2, H * 0.62);
+    ctx.fillStyle = 'rgba(255,255,255,0.72)'; ctx.font = '700 12px system-ui'; ctx.fillText('hands shear the flock in the background while you go for records', W / 2, H * 0.62 + 18);
+    const b = shearIntroButtons();
+    drawShedBtn(b.hire, '🧑‍🌾 Hire  $' + SHED_HAND_COST, '#8fe08a', (F.shedHands || 0) >= 2 || F.money < SHED_HAND_COST);
+    drawShedBtn(b.fire, '👋 Fire', '#ffb03a', (F.shedHands || 0) <= 0);
+    drawShedBtn(b.start, '▶ START', '#ffd23d');
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 12px system-ui'; ctx.fillText('(or tap anywhere to start)', W / 2, H * 0.8 + 68);
   }
   function drawGradeFlash(s) {
     const g = s.lastGrade; if (!g) return; ctx.textAlign = 'center';
@@ -1420,6 +1507,7 @@
     let gy = py + 120; ctx.font = '800 17px system-ui';
     const lines = [['★★★ Premium', s.tally.premium, '#ffd23d'], ['★★ Good', s.tally.good, '#8fe08a'], ['★ Store', s.tally.store, '#cbd3e0'], ['· Oddments', s.tally.oddments, '#c98a6a']];
     for (const ln of lines) { if (ln[1] > 0) { ctx.fillStyle = ln[2]; ctx.fillText(ln[0] + '  ×' + ln[1], W / 2, gy); gy += 26; } }
+    if (s.handSheared > 0) { ctx.fillStyle = '#8fe08a'; ctx.font = '800 15px system-ui'; ctx.fillText('🧑‍🌾 Shed hands sheared ' + s.handSheared, W / 2, gy); gy += 24; }
     if (s.bestCombo >= 2) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 18px system-ui'; ctx.fillText('🔥 Best premium streak: ' + s.bestCombo, W / 2, gy); gy += 28; }
     if (s.record) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 20px system-ui'; ctx.fillText('🏆 NEW RECORD WOOL CROP!', W / 2, gy); gy += 28; }
     // best-time board — the speed-run high scores
@@ -1619,7 +1707,7 @@
   function openShop() { if (!F) return; renderShop(); shopScreen.classList.remove('hidden'); }
   function closeShop() { shopScreen.classList.add('hidden'); }
   function sheepCost(b) { if (b === 'normal' && sheep.length === 0) return 0; return Math.round(BREEDS[b].cost + (b === 'normal' ? sheep.length * 18 : 0)); }
-  function expandCost() { return Math.round(300 * Math.pow(F.farmLevel, 1.5)); }
+  function expandCost() { return Math.round(560 * Math.pow(F.farmLevel, 1.75)); }   // steeper level-up cost — progress through the eras gradually
   function houseCost() { return Math.round(300 * F.house.level); }
   function workerCost() { return 90 + workers.length * 55; }
   function shearsCost() { return 200 * (F.shearGear || 1); }
@@ -1714,6 +1802,10 @@
       shearAdvance() { const s = shearSession; if (s && s.phase === 'grade') advanceAfterGrade(); return s ? s.phase : null; },
       shearFinishAt(t) { const s = shearSession; if (!s || s.phase !== 'shearing') return null; s.sheepT = t; for (const w of s.tufts) w.gone = true; s.gone = s.total; shearUpdate(1); return { phase: s.phase, breed: s.breed, lastTime: s.lastTime, rec: s.lastTimeRec, par: s.lastPar, best: F.records.bestShear }; },
       bestTimes() { return F.records.bestShear; }, shearTuftCount() { return shearSession ? shearSession.total : null; },
+      shedHands() { return F.shedHands; }, hireHand: hireShedHand, fireHand: fireShedHand,
+      handInfo() { const s = shearSession; return s ? { hands: s.handHands, tail: s.handTail, idx: s.idx, sheared: s.handSheared, work: Math.round(s.handWork) } : null; },
+      penInfo2(i) { const p = F.pens[i || 0]; return p ? { gateSide: p.gateSide, open: p.gateOpen, gw: Math.round(gateWidth(p)), doubleGone: !p.doubleGate ? true : gateSides(p).length === 1 } : null; },
+      sheepOut(i) { const p = F.pens[i || 0]; if (!p) return null; return sheep.filter(s => !penInsideStrict(p, s.x, s.y)).length; },
       spawnBreed(b, wool) { const p = F.pens[0]; const ns = makeSheep({ breed: b, role: 'ewe', wool: wool == null ? 80 : wool }); if (p) { ns.x = p.x + p.w / 2; ns.y = p.y + p.h / 2; } sheep.push(ns); updateHud(); return ns.id; },
       shearTap() { shearDown({ x: W / 2, y: H / 2 }); }, shearStep(n) { for (let i = 0; i < (n || 1); i++) shearUpdate(1); }, shearRenderNow() { if (shearSession) shearRender(); }, buyShears, gear() { return F.shearGear; }, records() { return F.records; },
       grade(p) { return woolGrade(p); }, fireWorker, forceBoss() { const s = shearSession; if (s) { s.idx = s.queue.length; s.bossDone = false; beginCatch(true); } },
