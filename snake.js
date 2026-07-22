@@ -41,6 +41,17 @@
   const BEST_KEY = 'woofa_snake_best';
   let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
 
+  // ---------- sound ----------
+  let actx = null, master = null, lastEatSfx = 0;
+  function ensureAudio() { try { if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.45; master.connect(actx.destination); } if (actx.state === 'suspended' && actx.resume) actx.resume(); } catch (e) { actx = null; } }
+  function beep(f, dur, type, vol, slideTo) { if (!actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = f; if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, actx.currentTime + dur); g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur + 0.02); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + dur + 0.04); } catch (e) {} }
+  const sfx = {
+    eat() { if (tick - lastEatSfx < 4) return; lastEatSfx = tick; beep(660 + Math.random() * 120, 0.05, 'triangle', 0.035, 900); },
+    boost() { beep(200, 0.18, 'sawtooth', 0.045, 420); },
+    kill() { beep(180, 0.18, 'square', 0.06, 90); setTimeout(() => beep(120, 0.2, 'sawtooth', 0.05, 60), 60); },
+    death() { beep(300, 0.4, 'sawtooth', 0.07, 70); setTimeout(() => beep(160, 0.5, 'square', 0.05, 50), 120); },
+  };
+
   const AI_COLORS = ['#ff8a3d', '#58e08a', '#a06bff', '#ff5d7a', '#ffd23d', '#4cc9ff', '#f26bff'];
   const AI_NAMES = ['Rex', 'Bella', 'Buddy', 'Coco', 'Max', 'Luna', 'Zeus', 'Ruby'];
 
@@ -69,6 +80,7 @@
   }
 
   function reset() {
+    ensureAudio();
     snakes = []; food = []; tick = 0;
     player = makeSnake({ isPlayer: true, color: '#1c1c22', x: 0, y: 0 });
     snakes.push(player);
@@ -113,7 +125,7 @@
 
   // boost button
   const boostBtn = document.getElementById('boostBtn');
-  const setBoost = (v) => { if (player) player.boosting = v; boostBtn.classList.toggle('on', v); };
+  const setBoost = (v) => { if (player) { if (v && !player.boosting && player.size > 60) sfx.boost(); player.boosting = v; } boostBtn.classList.toggle('on', v); };
   boostBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setBoost(true); }, { passive: false });
   boostBtn.addEventListener('touchend', (e) => { e.preventDefault(); setBoost(false); }, { passive: false });
   boostBtn.addEventListener('mousedown', () => setBoost(true));
@@ -162,7 +174,7 @@
       const h = s.points[0], rr = radiusFor(s.size) + 10;
       for (let i = food.length - 1; i >= 0; i--) {
         const f = food[i];
-        if (dist2(h.x, h.y, f.x, f.y) < rr * rr) { s.size += f.value; food.splice(i, 1); }
+        if (dist2(h.x, h.y, f.x, f.y) < rr * rr) { s.size += f.value; food.splice(i, 1); if (s.isPlayer) sfx.eat(); }
       }
     }
     while (food.length < 320) spawnFood();
@@ -247,8 +259,9 @@
       const p = s.points[i];
       spawnFood(p.x + rand(-6, 6), p.y + rand(-6, 6), s.isPlayer ? '#ffd23d' : s.color, true);
     }
-    if (s.isPlayer) { /* handled in update -> endGame */ }
+    if (s.isPlayer) { sfx.death(); deathFlash = 1; } else sfx.kill();
   }
+  let deathFlash = 0;
 
   // ---------- render ----------
   function worldToScreen(x, y) {
@@ -297,6 +310,7 @@
     if (player) drawHead(player);
 
     drawJoystick();
+    if (deathFlash > 0) { ctx.fillStyle = 'rgba(255,70,70,' + (deathFlash * 0.4) + ')'; ctx.fillRect(0, 0, W, H); deathFlash = Math.max(0, deathFlash - 0.025); }
   }
 
   function drawJoystick() {
