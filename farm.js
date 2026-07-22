@@ -483,8 +483,12 @@
 
     // rescue a sheep stuck in a dam (tap it)
     for (const s of sheep) if (s.stuck && dist(p.x, p.y, s.x, s.y) < 36) { rescueSheep(s); return; }
-    // tap a dam to enlarge it (armed two-tap so it's never accidental)
-    for (const d of F.dams) if (dist(p.x, p.y, d.x, d.y) < damR(d) + 6) { if (armedDam === d) { armedDam = null; upgradeDam(d); } else if (d.size >= 4) { toast('🏞️ That dam is already huge!'); } else { armedDam = d; toast('🏞️ Tap the dam again to enlarge it ($' + damSizeCost(d) + ')'); sfx.pop(); } return; }
+    // dams: tap the ➕ badge to enlarge (two-tap confirm), or DRAG the dam body to move it
+    for (const d of F.dams) {
+      const up = damUpBtn(d);
+      if (dist(p.x, p.y, up.x, up.y) < 15) { if (d.size >= 4) { toast('🏞️ That dam is already huge!'); } else if (armedDam === d) { armedDam = null; upgradeDam(d); } else { armedDam = d; toast('🏞️ Tap ➕ again to enlarge ($' + damSizeCost(d) + ')'); sfx.pop(); } return; }
+      if (dist(p.x, p.y, d.x, d.y) < damR(d)) { armedDam = null; drag = { type: 'dam', ref: d, ox: p.x - d.x, oy: p.y - d.y }; toast('🏞️ Drag the dam to move it · ➕ to enlarge'); return; }
+    }
     armedDam = null;
 
     for (const s of sheep) if (s.wool >= SHEAR_MIN && s.role !== 'lamb' && dist(p.x, p.y, s.x, s.y - 6) < 30) {
@@ -538,7 +542,8 @@
       const MIN = 46; if (Math.abs(x1 - x0) < MIN) { if (drag.corner[1] === 'w') x0 = x1 - MIN; else x1 = x0 + MIN; }
       if (Math.abs(y1 - y0) < MIN * 0.8) { if (drag.corner[0] === 'n') y0 = y1 - MIN * 0.8; else y1 = y0 + MIN * 0.8; }
       r.x = Math.min(x0, x1); r.y = Math.min(y0, y1); r.w = Math.abs(x1 - x0); r.h = Math.abs(y1 - y0);
-    } else { const t = drag.ref; t.y = clamp(p.y - drag.oy, paddock.y + 26, paddock.y + paddock.h - 20); const b = fieldBounds(t.y); t.x = clamp(p.x - drag.ox, b.left, b.right); }
+    } else if (drag.type === 'dam') { const d = drag.ref, r = damR(d); const y = clamp(p.y - drag.oy, paddock.y + r + 6, paddock.y + paddock.h - r - 6); const b = fieldBounds(y); d.x = clamp(p.x - drag.ox, b.left + r, b.right - r); d.y = y; }
+    else { const t = drag.ref; t.y = clamp(p.y - drag.oy, paddock.y + 26, paddock.y + paddock.h - 20); const b = fieldBounds(t.y); t.x = clamp(p.x - drag.ox, b.left, b.right); }
   }
   function onUp() {
     if (drag) { persist(); drag = null; }
@@ -1231,7 +1236,9 @@
     ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 1.4; for (let i = 0; i < 2; i++) { const rr = wr * (0.4 + i * 0.32) + Math.sin(tick / 22 + i) * 2; ctx.beginPath(); ctx.ellipse(Math.sin(tick / 30) * 4, 0, rr, rr * 0.6, 0, 0, 7); ctx.stroke(); }
     ctx.restore();
     ctx.fillStyle = '#eaf7ff'; ctx.font = '700 11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🏞️ Dam ' + Math.round(d.water) + '/' + damCap(d.size), d.x, d.y - r * 0.7 - 6);
-    if (armedDam === d) { ctx.fillStyle = '#ffd23d'; ctx.font = '800 11px system-ui'; ctx.fillText('tap again → enlarge $' + damSizeCost(d), d.x, d.y + r * 0.7 + 16); }
+    // enlarge (➕) badge — tap twice to grow the dam; the dam body itself drags to move
+    if (d.size < 4) { const up = damUpBtn(d); ctx.fillStyle = armedDam === d ? '#ffd23d' : '#2fbf6a'; ctx.beginPath(); ctx.arc(up.x, up.y, 12, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.fillStyle = '#0d2417'; ctx.font = '900 16px system-ui'; ctx.textBaseline = 'middle'; ctx.fillText('＋', up.x, up.y + 1); ctx.textBaseline = 'alphabetic'; }
+    if (armedDam === d) { ctx.fillStyle = '#ffd23d'; ctx.font = '800 11px system-ui'; ctx.fillText('tap ➕ again → enlarge $' + damSizeCost(d), d.x, d.y + r * 0.7 + 16); }
   }
   function drawTank() {
     const x = waterTrough.x + 30, y = waterTrough.y - 30, sc = dscale(y), fill = clamp(F.water / F.waterMax, 0, 1);
@@ -1847,6 +1854,7 @@
   // ---- dams & the water tanker ----
   function damCap(size) { return size * 420; }
   function damR(d) { return 30 + (d.size - 1) * 15; }
+  function damUpBtn(d) { const r = damR(d); return { x: d.x + r * 0.72, y: d.y - r * 0.72 }; }
   function damBuyCost() { return Math.round(300 * Math.pow(1.6, F.dams.length)); }
   function damSizeCost(d) { return Math.round(240 * d.size * 1.4); }
   function tankPos() { return { x: waterTrough.x, y: waterTrough.y - 4 }; }
@@ -1921,6 +1929,7 @@
       bestTimes() { return F.records.bestShear; }, shearTuftCount() { return shearSession ? shearSession.total : null; },
       shedHands() { return F.shedHands; }, hireHand: hireShedHand, fireHand: fireShedHand,
       buyDam, upgradeDamAt(i) { if (F.dams[i]) upgradeDam(F.dams[i]); }, buyTrailer, buyTrough, upgradeTank, addTrough: buyTrough,
+      damPos(i) { const d = F.dams[i || 0]; return d ? { x: Math.round(d.x), y: Math.round(d.y), r: Math.round(damR(d)), upBtn: damUpBtn(d) } : null; },
       damInfo() { return { dams: F.dams.map(d => ({ x: Math.round(d.x), y: Math.round(d.y), size: d.size, water: Math.round(d.water), cap: damCap(d.size) })), trailer: F.trailer, tractor: tractor ? { x: Math.round(tractor.x), y: Math.round(tractor.y), mode: tractor.mode, load: Math.round(tractor.load || 0) } : null }; },
       waterInfo() { return { feed: Math.round(F.feed), feedMax: F.feedMax, water: Math.round(F.water), waterMax: F.waterMax, extraTroughs: F.extraTroughs.length }; },
       stuckInfo() { return sheep.filter(s => s.stuck).map(s => ({ name: s.name, dam: s.stuckDam, t: Math.round(s.stuckT2 || 0) })); },
