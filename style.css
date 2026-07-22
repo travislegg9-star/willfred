@@ -335,6 +335,14 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
 .fuel-pill { gap: 5px; }
 .fuel-track { display: inline-block; width: 48px; height: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 6px; overflow: hidden; vertical-align: middle; }
 .fuel-fill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff5a5a, #ffd23d, #58e08a); border-radius: 6px; transition: width 0.2s ease; }
+/* level progress to the flag */
+.tr-prog {
+  position: fixed; top: calc(58px + var(--safe-top, 0px)); left: 50%; transform: translateX(-50%);
+  z-index: 20; width: min(78vw, 360px); height: 8px;
+  background: rgba(0, 0, 0, 0.42); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.tr-prog-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; background: linear-gradient(90deg, #58e08a, #ffd23d); border-radius: 6px; transition: width 0.15s linear; }
+.tr-prog-flag { position: absolute; right: -6px; top: -13px; font-size: 15px; }
 
 /* ---------- Sheepdog Trials bark button ---------- */
 .bark-btn {

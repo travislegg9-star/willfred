@@ -18,14 +18,16 @@
 
   <!-- HUD -->
   <div id="trHud" class="hud">
-    <div class="hud-pill">🚩 <span id="trDist">0</span>m</div>
-    <div class="hud-pill">🌾 <span id="trBales">0</span></div>
-    <div class="hud-pill">🏆 <span id="trBest">0</span>m</div>
+    <div class="hud-pill">🏁 Lvl <span id="trLevel">1</span></div>
+    <div class="hud-pill">📏 <span id="trDist">0</span>/<span id="trTarget">0</span>m</div>
+    <div class="hud-pill">🪙 <span id="trCoins">0</span></div>
     <div class="hud-pill fuel-pill">⛽ <span class="fuel-track"><span id="trFuel" class="fuel-fill"></span></span></div>
   </div>
+  <!-- level progress bar -->
+  <div id="trProgWrap" class="tr-prog"><span id="trProg" class="tr-prog-fill"></span><span class="tr-prog-flag">🏁</span></div>
 
   <!-- pedals -->
-  <button id="brakePedal" class="pedal pedal-left">◀ REVERSE</button>
+  <button id="brakePedal" class="pedal pedal-left">◀ LEAN / REVERSE</button>
   <button id="gasPedal" class="pedal pedal-right">GAS ▶</button>
 
   <div id="toast" class="toast"></div>
@@ -34,18 +36,41 @@
   <div id="startScreen" class="overlay">
     <div class="panel">
       <div class="logo"><span class="logo-throw" style="animation:none">🚜</span><h1>TRACTOR<span>PARKOUR</span></h1></div>
-      <p class="tagline">Drive Woofa's John Deere over the hills. Collect hay bales, don't run dry, and don't flip!</p>
-      <button class="btn btn-primary" id="trPlay">DRIVE</button>
-      <p class="credit">GAS to go, REVERSE to back up &amp; balance in the air 🐾</p>
+      <p class="tagline">Race Woofa's John Deere over hills, launch off ramps, clear the gaps and reach the flag. Collect 🪙 to <b>upgrade your tractor</b>!</p>
+      <button class="btn btn-primary" id="trPlay">DRIVE 🚜</button>
+      <button class="btn btn-ghost" id="trGarageBtn">🔧 Garage</button>
+      <p class="credit">GAS to go · hold LEAN in the air to flip 🤸</p>
     </div>
   </div>
 
-  <!-- over -->
+  <!-- garage / upgrades -->
+  <div id="garageScreen" class="overlay hidden">
+    <div class="panel panel-wide">
+      <div class="shop-head"><h2>🔧 Woofa's Garage</h2><div class="shop-coins">🪙 <span id="garageCoins">0</span></div></div>
+      <div id="garageList" class="shop-list"></div>
+      <button class="btn btn-primary" id="garageClose">Back</button>
+    </div>
+  </div>
+
+  <!-- level complete -->
+  <div id="clearScreen" class="overlay hidden">
+    <div class="panel">
+      <h2 id="clearTitle">🏁 Level Clear!</h2>
+      <div id="clearStars" style="font-size:34px;letter-spacing:4px;margin:4px 0"></div>
+      <p class="tagline" id="clearText">Nice driving!</p>
+      <p class="tagline">🪙 Earned: <b id="clearCoins" style="color:var(--accent-2)">0</b></p>
+      <button class="btn btn-primary" id="trNext">Next level ›</button>
+      <button class="btn btn-ghost" id="trGarage2">🔧 Garage</button>
+    </div>
+  </div>
+
+  <!-- crash / over -->
   <div id="overScreen" class="overlay hidden">
     <div class="panel">
       <h2 id="overTitle">Crashed! 🚜</h2>
-      <p class="tagline">You drove <b id="overDist" style="color:var(--good)">0</b>m<br>🌾 Bales: <b id="overBales" style="color:var(--accent-2)">0</b> · Best: <b id="overBest" style="color:var(--accent-2)">0</b>m</p>
-      <button class="btn btn-primary" id="trAgain">Drive again</button>
+      <p class="tagline">You drove <b id="overDist" style="color:var(--good)">0</b>m<br>🪙 Earned: <b id="overCoins" style="color:var(--accent-2)">0</b> · Best level: <b id="overBest" style="color:var(--accent-2)">1</b></p>
+      <button class="btn btn-primary" id="trAgain">Try again</button>
+      <button class="btn btn-ghost" id="trGarage3">🔧 Garage</button>
       <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
     </div>
   </div>
