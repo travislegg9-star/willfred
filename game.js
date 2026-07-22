@@ -128,8 +128,14 @@
     x: 900, y: 0, vx: 0, vy: 0, onGround: true,
     facing: -1, run: 0, targetX: 900, jumping: false, mouthOpen: 0,
     state: 'idle', // idle | chase | leap | catchpose | rip | fall
-    stateT: 0,
+    stateT: 0, patrol: null,
   };
+  // the catcher kid runs back and forth on higher levels — you have to LEAD the throw
+  function initPatrol() {
+    const pr = level >= 3 ? clamp((level - 2) * 24, 0, 200) : 0;
+    dog.patrol = { on: pr > 0, c: ring.x, r: pr, dir: Math.random() < 0.5 ? -1 : 1, speed: 0.95 + Math.max(0, level - 2) * 0.22 };
+    dog.x = ring.x + (pr ? rand(-pr, pr) : rand(-30, 30)); dog.targetX = dog.x;
+  }
 
   // The two kids who chase the throws.
   const kids = [
@@ -183,12 +189,11 @@
     wind = windForLevel(step);
     goalX = worldWidth - 90;             // footy goals out past the kids
     camX = 0; camZoom = 1; camFX = W / 2; camFY = H / 2;
-    dog.x = ring.x + rand(-40, 40);
-    dog.targetX = dog.x;
     dog.y = groundY();
     dog.state = 'idle';
     dog.mouthOpen = 0;
     dog.jumping = false;
+    initPatrol();
     resetDisc();
   }
 
@@ -256,11 +261,13 @@
     disc.spin = 0;
     state = STATE.FLY;
 
-    // Wilford predicts landing and commits
-    const predicted = predictLanding();
-    dog.targetX = predicted.x;
-    dog.state = 'chase';
-    dog.stateT = 0;
+    // On easy levels the catcher runs to the landing; on patrol levels it keeps running and you must LEAD it
+    if (!(dog.patrol && dog.patrol.on)) {
+      const predicted = predictLanding();
+      dog.targetX = predicted.x;
+      dog.state = 'chase';
+      dog.stateT = 0;
+    }
   }
 
   // Simulate the disc forward to estimate where it will be catchable (near ground)
@@ -561,11 +568,10 @@
     // swap which kid is up, re-roll wind, reset positions
     activeKid = 1 - activeKid;
     wind = windForLevel(level - 1);
-    dog.x = ring.x + rand(-30, 30);
     dog.y = groundY();
-    dog.targetX = dog.x;
     dog.facing = -1;
     dog.state = 'idle';
+    initPatrol();
     dog.mouthOpen = 0;
     dog.jumping = false;
     dog.onGround = true;
@@ -581,6 +587,15 @@
   function updateDog(dt) {
     const gy = groundY();
     const speed = 4.6 + level * 0.15;
+
+    // moving catcher: run back and forth while you aim & the disc flies — the sweet-spot ring follows the kid, so you must lead the throw
+    if (dog.patrol && dog.patrol.on && (state === STATE.AIM || state === STATE.FLY) && !disc.caught && dog.state !== 'leap' && dog.state !== 'fall' && dog.state !== 'catchpose' && dog.state !== 'rip') {
+      dog.x += dog.patrol.dir * dog.patrol.speed * dt;
+      if (dog.x <= dog.patrol.c - dog.patrol.r) { dog.x = dog.patrol.c - dog.patrol.r; dog.patrol.dir = 1; }
+      else if (dog.x >= dog.patrol.c + dog.patrol.r) { dog.x = dog.patrol.c + dog.patrol.r; dog.patrol.dir = -1; }
+      dog.facing = dog.patrol.dir; dog.run += dog.patrol.speed * 0.14 * dt;
+      ring.x = dog.x;
+    }
 
     if (dog.state === 'chase') {
       const dx = dog.targetX - dog.x;
@@ -1734,8 +1749,12 @@
       info() {
         return { state, level, scene: sceneFor(level).name, dogState: dog.state,
           discX: disc.x | 0, discY: disc.y | 0, caught: disc.caught, attempted: disc.attempted,
-          coins: save.coins, streak, activeKid, capeOn: !!save.capeOn };
+          coins: save.coins, streak, activeKid, capeOn: !!save.capeOn,
+          patrol: dog.patrol ? { on: dog.patrol.on, r: Math.round(dog.patrol.r), c: Math.round(dog.patrol.c) } : null,
+          dogX: Math.round(dog.x), ringX: Math.round(ring.x) };
       },
+      setLevel(n) { level = n; configureLevel(level); state = STATE.AIM; showAimHint && showAimHint(); },
+      dogX() { return Math.round(dog.x); },
     };
   }
 
