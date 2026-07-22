@@ -300,7 +300,7 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
 /* Snake boost button */
 .boost-btn {
   position: fixed;
-  right: calc(18px + var(--safe-bottom));
+  left: calc(18px + var(--safe-bottom));
   bottom: calc(28px + var(--safe-bottom));
   z-index: 25;
   width: 88px; height: 88px;

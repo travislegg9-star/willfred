@@ -47,7 +47,9 @@
   let snakes = [], food = [], cam = { x: 0, y: 0, zoom: 1 };
   let player = null, running = false, tick = 0;
 
-  function radiusFor(size) { return 6.5 + Math.min(size / 55, 9); }
+  function radiusFor(size) { return 7 + Math.min(size / 34, 21); }   // gets genuinely chunky as it grows (was capped thin)
+  // difficulty rises with the player's size AND time — so the arena keeps pace and never gets easy
+  function difficulty() { const bySize = clamp((player ? player.size : 0) / 340, 0, 1), byTime = clamp(tick / 9000, 0, 0.5); return clamp(bySize + byTime, 0, 1.3); }
 
   function makeSnake(opts) {
     const a = rand(0, Math.PI * 2), r = rand(0, WORLD_R * 0.7);
@@ -59,7 +61,7 @@
       speed: BASE_SPEED, boosting: false,
       isPlayer: !!opts.isPlayer, dead: false,
       color: opts.color || '#ff8a3d', name: opts.name || 'Snake',
-      wobble: rand(0, 100), aiTimer: 0,
+      wobble: rand(0, 100), aiTimer: 0, aggro: opts.aggro != null ? opts.aggro : Math.random() < 0.35,
     };
     s.targetAngle = s.angle;
     for (let i = 0; i < s.size; i++) s.points.push({ x: x - Math.cos(s.angle) * i * 3, y: y - Math.sin(s.angle) * i * 3 });
@@ -92,18 +94,22 @@
   }
 
   // ---------- input ----------
-  const pointer = { x: W / 2, y: H / 2, active: false };
+  // A right-side JOYSTICK (kid-friendly) plus free drag-steer anywhere else.
+  const pointer = { x: W / 2, y: H / 2 };
   let steering = false;
-  function setPointer(e) {
-    const t = e.touches ? e.touches[0] : e;
-    pointer.x = t.clientX; pointer.y = t.clientY;
-  }
-  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); steering = true; setPointer(e); }, { passive: false });
-  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); setPointer(e); }, { passive: false });
-  canvas.addEventListener('touchend', (e) => { e.preventDefault(); if (!e.touches.length) steering = false; }, { passive: false });
-  canvas.addEventListener('mousedown', (e) => { steering = true; setPointer(e); });
-  window.addEventListener('mousemove', (e) => { if (steering) setPointer(e); });
-  window.addEventListener('mouseup', () => { steering = false; });
+  const joy = { active: false, bx: 0, by: 0, kx: 0, ky: 0, r: 48 };
+  function joyBase() { return { x: W - 92 - (window.__safeR || 0), y: H - 118 }; }
+  function inJoyZone(x, y) { const b = joyBase(); return Math.hypot(x - b.x, y - b.y) < 160 || (x > W * 0.56 && y > H * 0.46); }
+  function joyMove(x, y) { let dx = x - joy.bx, dy = y - joy.by; const d = Math.hypot(dx, dy); if (d > joy.r) { dx = dx / d * joy.r; dy = dy / d * joy.r; } joy.kx = dx; joy.ky = dy; if (d > 5 && player) player.targetAngle = Math.atan2(dy, dx); }
+  function handleDown(x, y) { if (inJoyZone(x, y)) { const b = joyBase(); joy.active = true; joy.bx = b.x; joy.by = b.y; joyMove(x, y); } else { steering = true; pointer.x = x; pointer.y = y; } }
+  function handleMove(x, y) { if (joy.active) joyMove(x, y); else if (steering) { pointer.x = x; pointer.y = y; } }
+  function handleUp() { joy.active = false; joy.kx = 0; joy.ky = 0; steering = false; }
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.changedTouches[0]; handleDown(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; if (t) handleMove(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('touchend', (e) => { e.preventDefault(); if (!e.touches.length) handleUp(); }, { passive: false });
+  canvas.addEventListener('mousedown', (e) => handleDown(e.clientX, e.clientY));
+  window.addEventListener('mousemove', (e) => { if (joy.active || steering) handleMove(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', handleUp);
 
   // boost button
   const boostBtn = document.getElementById('boostBtn');
@@ -129,8 +135,8 @@
     for (const s of snakes) {
       if (s.dead) continue;
       if (!s.isPlayer) aiThink(s);
-      // turn toward target
-      const turn = TURN * (s.boosting ? 1.5 : 1);
+      // turn toward target (AI get sharper as difficulty climbs, so they can actually cut you off)
+      const turn = TURN * (s.boosting ? 1.5 : 1) * (s.isPlayer ? 1 : 1 + difficulty() * 0.35);
       s.angle = angLerp(s.angle, s.targetAngle, turn * dt);
       // boost consumes length
       let sp = s.speed * (s.boosting && s.size > 60 ? 1.85 : 1);
@@ -176,13 +182,20 @@
       }
     }
 
-    // respawn dead AI to keep the arena busy
+    // respawn dead AI to keep the arena busy — sized to KEEP PACE with the player so it never gets easy
+    const pv = player.dead ? 60 : player.size, diff = difficulty();
     for (let i = 0; i < snakes.length; i++) {
       const s = snakes[i];
       if (s.dead && !s.isPlayer) {
         s.respawnT = (s.respawnT || 0) + dt;
-        if (s.respawnT > 90) snakes[i] = makeSnake({ color: s.color, name: s.name, size: rand(40, 70) });
+        if (s.respawnT > 80) snakes[i] = makeSnake({ color: s.color, name: s.name, size: rand(Math.max(45, pv * 0.4), Math.max(95, pv * 0.95)), aggro: Math.random() < 0.3 + diff * 0.45 });
       }
+    }
+    // as the player gets big, bring in extra rivals so the arena keeps competing (up to a cap)
+    const wantSnakes = AI_COUNT + Math.min(4, Math.floor(pv / 180));
+    const aliveAI = snakes.filter(s => !s.isPlayer && !s.dead).length;
+    if (aliveAI < wantSnakes && (tick | 0) % 120 === 0) {
+      snakes.push(makeSnake({ color: AI_COLORS[(snakes.length) % AI_COLORS.length], name: AI_NAMES[(snakes.length) % AI_NAMES.length], size: rand(Math.max(60, pv * 0.5), Math.max(110, pv * 0.9)), aggro: Math.random() < 0.4 + diff * 0.4 }));
     }
 
     // camera follows player, zooms out as it grows
@@ -197,28 +210,32 @@
 
   function aiThink(s) {
     s.aiTimer -= 1;
-    const h = s.points[0];
+    const h = s.points[0], diff = difficulty();
     if (s.aiTimer <= 0) {
-      s.aiTimer = rand(20, 55);
-      // mostly hunt nearest food; sometimes wander
-      let bx = null, by = null, bd = 1e12;
-      for (let i = 0; i < food.length; i += 5) {
-        const d = dist2(h.x, h.y, food[i].x, food[i].y);
-        if (d < bd) { bd = d; bx = food[i].x; by = food[i].y; }
+      s.aiTimer = rand(14, 42);
+      const ph = player.points[0], dToPlayer = player.dead ? 1e9 : Math.hypot(h.x - ph.x, h.y - ph.y);
+      // AGGRESSIVE snakes near the player try to CUT IT OFF — aim ahead of where the player is heading
+      if (s.aggro && !player.dead && dToPlayer < 560 && s.size > player.size * 0.5 && Math.random() < 0.55 + diff * 0.35) {
+        const lead = 55 + Math.min(dToPlayer, 320) * 0.55;
+        const tx = ph.x + Math.cos(player.angle) * lead, ty = ph.y + Math.sin(player.angle) * lead;
+        s.targetAngle = Math.atan2(ty - h.y, tx - h.x);
+        s.boosting = s.size > 65 && Math.random() < 0.35 + diff * 0.4;
+      } else {
+        // hunt nearest food, otherwise wander
+        let bx = null, by = null, bd = 1e12;
+        for (let i = 0; i < food.length; i += 5) { const d = dist2(h.x, h.y, food[i].x, food[i].y); if (d < bd) { bd = d; bx = food[i].x; by = food[i].y; } }
+        if (bx != null && Math.random() < 0.85) s.targetAngle = Math.atan2(by - h.y, bx - h.x);
+        else s.targetAngle = s.angle + rand(-1, 1);
+        s.boosting = Math.random() < (0.1 + diff * 0.2) && s.size > 80;
       }
-      if (bx != null && Math.random() < 0.85) s.targetAngle = Math.atan2(by - h.y, bx - h.x);
-      else s.targetAngle = s.angle + rand(-1, 1);
-      s.boosting = Math.random() < 0.15 && s.size > 80;
     }
-    // avoid the fence: if heading near the edge, steer inward
+    // avoid the fence: if heading near the edge, steer hard inward
     const rr = Math.hypot(h.x, h.y);
-    if (rr > WORLD_R - 160) s.targetAngle = Math.atan2(-h.y, -h.x) + rand(-0.4, 0.4);
-    // dodge the player's body if very close ahead
-    if (Math.random() < 0.3) {
+    if (rr > WORLD_R - 170) { s.targetAngle = Math.atan2(-h.y, -h.x) + rand(-0.4, 0.4); s.boosting = false; }
+    // don't suicide into the player's body if it's close ahead
+    if (!player.dead && Math.random() < 0.35) {
       const ph = player.points;
-      for (let i = 8; i < ph.length; i += 10) {
-        if (dist2(h.x, h.y, ph[i].x, ph[i].y) < 60 * 60) { s.targetAngle += 0.5; break; }
-      }
+      for (let i = 8; i < ph.length; i += 10) { if (dist2(h.x, h.y, ph[i].x, ph[i].y) < 66 * 66) { s.targetAngle += 0.6; s.boosting = false; break; } }
     }
   }
 
@@ -278,6 +295,25 @@
     if (player) drawBody(player);
     for (const s of alive) if (!s.isPlayer) drawHead(s);
     if (player) drawHead(player);
+
+    drawJoystick();
+  }
+
+  function drawJoystick() {
+    const b = joyBase();
+    ctx.save();
+    ctx.globalAlpha = joy.active ? 0.5 : 0.3;
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(b.x, b.y, joy.r + 18, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(b.x, b.y, joy.r + 18, 0, 7); ctx.stroke();
+    // faint direction ticks
+    ctx.globalAlpha = joy.active ? 0.35 : 0.2; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    for (let a = 0; a < 4; a++) { const ang = a * Math.PI / 2; ctx.beginPath(); ctx.moveTo(b.x + Math.cos(ang) * (joy.r + 6), b.y + Math.sin(ang) * (joy.r + 6)); ctx.lineTo(b.x + Math.cos(ang) * (joy.r + 14), b.y + Math.sin(ang) * (joy.r + 14)); ctx.stroke(); }
+    // knob
+    ctx.globalAlpha = joy.active ? 1 : 0.72;
+    ctx.fillStyle = '#ffd23d'; ctx.beginPath(); ctx.arc(b.x + joy.kx, b.y + joy.ky, 26, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.globalAlpha = joy.active ? 1 : 0.85; ctx.font = '900 20px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🕹️', b.x + joy.kx, b.y + joy.ky + 1);
+    ctx.restore(); ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
   }
 
   function drawBody(s) {
@@ -413,6 +449,11 @@
       // testing: steer toward a world point, and drop food right in front of the head
       steerTo(wx, wy) { steering = true; const h = player.points[0]; const a = Math.atan2(wy - h.y, wx - h.x); pointer.x = W / 2 + Math.cos(a) * 200; pointer.y = H / 2 + Math.sin(a) * 200; },
       dropFoodAhead() { const h = player.points[0]; spawnFood(h.x + Math.cos(player.angle) * 20, h.y + Math.sin(player.angle) * 20); },
-      probe() { const h = player.points[0]; return { angle: +player.angle.toFixed(2), size: +player.size.toFixed(1), hx: h.x | 0, hy: h.y | 0, dead: player.dead }; } };
+      probe() { const h = player.points[0]; return { angle: +player.angle.toFixed(2), size: +player.size.toFixed(1), hx: h.x | 0, hy: h.y | 0, dead: player.dead }; },
+      setSize(n) { if (player) player.size = n; },
+      diff() { return +difficulty().toFixed(2); },
+      radiusAt(sz) { return +radiusFor(sz).toFixed(1); },
+      aiStats() { const ai = snakes.filter(s => !s.isPlayer && !s.dead); return { count: ai.length, sizes: ai.map(s => Math.round(s.size)).sort((a, b) => b - a), aggro: ai.filter(s => s.aggro).length, playerSize: Math.round(player.size) }; },
+      joyState() { return { active: joy.active, kx: Math.round(joy.kx), ky: Math.round(joy.ky), base: joyBase() }; } };
   }
 })();
