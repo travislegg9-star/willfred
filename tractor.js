@@ -27,7 +27,7 @@
 
   // ---------- save ----------
   const SAVE_KEY = 'woofa_tractor_v2';
-  const DEF = { coins: 0, bestLevel: 1, best: 0, up: { engine: 0, tank: 0, susp: 0, grip: 0 }, model: 'green', owned: { green: true } };
+  const DEF = { coins: 0, bestLevel: 1, best: 0, bestEndless: 0, up: { engine: 0, tank: 0, susp: 0, grip: 0, nitro: 0, magnet: 0, air: 0 }, model: 'green', owned: { green: true } };
   function load() { try { const r = localStorage.getItem(SAVE_KEY); if (!r) return JSON.parse(JSON.stringify(DEF)); const s = JSON.parse(r); return Object.assign(JSON.parse(JSON.stringify(DEF)), s, { up: Object.assign({}, DEF.up, s.up), owned: Object.assign({}, DEF.owned, s.owned) }); } catch (e) { return JSON.parse(JSON.stringify(DEF)); } }
   function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
   let save = load();
@@ -38,11 +38,15 @@
     tank: { name: 'Fuel Tank', emoji: '⛽', max: 5, base: 55, desc: 'Bigger tank — runs longer.' },
     susp: { name: 'Suspension', emoji: '🛞', max: 5, base: 65, desc: 'Land steeper without flipping.' },
     grip: { name: 'Grip', emoji: '⛰️', max: 5, base: 50, desc: 'Better climbing up hills.' },
+    nitro: { name: 'Nitro', emoji: '🔥', max: 4, base: 90, desc: 'Hold NITRO for a speed burst.' },
+    magnet: { name: 'Coin Magnet', emoji: '🧲', max: 3, base: 75, desc: 'Suck in nearby 🌾 & fuel.' },
+    air: { name: 'Air Control', emoji: '🪂', max: 4, base: 65, desc: 'Spin faster, land flips easier.' },
   };
   const MODELS = {
     green: { name: 'John Deere', emoji: '🚜', body: '#3a8a2e', cab: '#367f2b', cost: 0, spd: 1, acc: 1 },
     red: { name: 'Red Rocket', emoji: '🚜', body: '#c0392b', cab: '#a5342a', cost: 900, spd: 1.14, acc: 1.1 },
-    monster: { name: 'Monster', emoji: '🚜', body: '#5b3a86', cab: '#4a2f6e', cost: 2500, spd: 1.28, acc: 1.25, big: 1.25 },
+    monster: { name: 'Monster', emoji: '🚜', body: '#5b3a86', cab: '#4a2f6e', cost: 2500, spd: 1.28, acc: 1.25, big: 1.25, smash: true },
+    gold: { name: 'Golden Hauler', emoji: '🚜', body: '#d4a017', cab: '#b8860b', cost: 6000, spd: 1.42, acc: 1.3, big: 1.15, smash: true },
   };
   const upCost = (k) => UP[k].base * (save.up[k] + 1);
   function stats() {
@@ -53,9 +57,22 @@
       fuelDrain: 0.00058 / (1 + save.up.tank * 0.32),
       safeLand: 1.42 + save.up.susp * 0.17,
       uphill: 0.34 * (1 - save.up.grip * 0.11),
+      hasNitro: save.up.nitro > 0, nitroPow: 0.42 + save.up.nitro * 0.12,
+      magnetR: save.up.magnet > 0 ? 55 + save.up.magnet * 55 : 0,
+      airCtrl: 1 + save.up.air * 0.5,
+      smash: !!m.smash,
       big: m.big || 1, body: m.body, cab: m.cab,
     };
   }
+  // ---------- themes (a new world look every level) ----------
+  const THEMES = [
+    { name: 'Meadow', sky: ['#7ec8ff', '#cdeeff'], ground: '#5aa84e', grass: '#3f8f3f', far1: '#8fc98a', far2: '#6fb56a', fric: 0.992, night: false },
+    { name: 'Mudlands', sky: ['#b9c890', '#e2ecc9'], ground: '#7a5a34', grass: '#5f4626', far1: '#9caa6a', far2: '#7d8a4e', fric: 0.984, night: false },
+    { name: 'Ice Fields', sky: ['#bfe6ff', '#eaf7ff'], ground: '#cfe8f2', grass: '#a9d3e6', far1: '#cfe0ea', far2: '#b3cdda', fric: 0.9975, night: false },
+    { name: 'Night Run', sky: ['#0d1a3a', '#26406b'], ground: '#2f5a3a', grass: '#24462e', far1: '#20304f', far2: '#182740', fric: 0.992, night: true },
+  ];
+  function themeFor(L) { return THEMES[(Math.max(1, L) - 1) % THEMES.length]; }
+  let theme = THEMES[0];
 
   // ---------- terrain (per level) ----------
   const GROUND_BASE = () => H * 0.66;
@@ -73,15 +90,16 @@
   // ---------- state ----------
   const WHEEL_BASE = 52, RIDE_H = 26, WHEEL_R = 15, GRAV = 0.42;
   const tr = {};
-  let items = [], cam = { x: 0, y: 0 }, particles = [];
-  let level = 1, running = false, tick = 0, dist = 0, coins = 0, fuel = 1, flipT = 0, banner = null, lastMile = 0, shakeT = 0, spawnedTo = 0, flipCount = 0;
-  const input = { gas: false, brake: false };
+  let items = [], obstacles = [], cam = { x: 0, y: 0 }, particles = [];
+  let level = 1, running = false, tick = 0, dist = 0, coins = 0, fuel = 1, boost = 0, banner = null, lastMile = 0, shakeT = 0, flipCount = 0, endless = false, lastFeatureX = 0;
+  const input = { gas: false, brake: false, nitro: false };
   function showBanner(txt, col) { banner = { txt, col: col || '#ffd23d', t: 90 }; }
   function shake() { shakeT = 8; }
 
   function genLevel(L) {
     hillA = 24 + Math.min(L * 4.5, 72);
-    ramps = []; gaps = []; items = [];
+    theme = themeFor(L);
+    ramps = []; gaps = []; items = []; obstacles = [];
     finishX = 8500 + L * 3200;
     let x = 2400;
     const nJumps = 2 + Math.floor(L * 0.85);
@@ -96,19 +114,47 @@
       }
       x += rand(760, 1340);
     }
-    // scatter bales + fuel (never in a gap)
-    for (let sx = 900; sx < finishX - 200; sx += rand(360, 620)) { if (gaps.some(g => sx > g.x0 - 30 && sx < g.x1 + 30)) continue; const gy = baseGround(sx); items.push({ type: Math.random() < 0.24 ? 'fuel' : 'bale', x: sx, y: gy - 30, got: false, ph: rand(0, 6) }); }
+    // smashable logs on the flat APPROACH to ramps (where the tractor is on the ground, not flying over)
+    if (L >= 2) for (const r of ramps) { if (Math.random() < 0.6 && r.x0 > 1500) obstacles.push({ x: r.x0 - rand(150, 340), w: 30, hit: false }); }
+    for (let sx = 900; sx < finishX - 200; sx += rand(360, 620)) { if (gaps.some(g => sx > g.x0 - 30 && sx < g.x1 + 30)) continue; items.push({ type: Math.random() < 0.24 ? 'fuel' : 'bale', x: sx, y: baseGround(sx) - 30, got: false, ph: rand(0, 6) }); }
   }
-
-  function startLevel(L) {
-    level = L; genLevel(L);
+  function endlessSpawn() {   // keep generating harder terrain ahead of the tractor forever
+    theme = themeFor(1 + Math.floor(dist / 450));
+    while (lastFeatureX < tr.x + W * 2.2) {
+      const L = 3 + dist / 320;
+      hillA = 26 + Math.min(L * 3.5, 78);
+      let x = lastFeatureX + rand(680, 1160);
+      const rampH = 58 + Math.min(L * 7, 168) + rand(-8, 22), rampW = 150 + rand(0, 60);
+      if (Math.random() < 0.55 && x - lastFeatureX > 400) obstacles.push({ x: x - rand(150, 320), w: 30, hit: false });   // log on the approach to this ramp
+      ramps.push({ x0: x, x1: x + rampW, h: rampH }); x += rampW;
+      if (L >= 4) { const gapW = 55 + Math.min(L * 13, 258) + rand(-8, 30); gaps.push({ x0: x + 6, x1: x + 6 + gapW }); x += gapW + 34; }
+      if (!gaps.some(g => Math.abs(x + 180 - (g.x0 + g.x1) / 2) < 220)) items.push({ type: Math.random() < 0.25 ? 'fuel' : 'bale', x: x + rand(120, 300), y: baseGround(x) - 30, got: false, ph: rand(0, 6) });
+      lastFeatureX = x;
+    }
+    const cut = tr.x - W;   // cull what's behind so groundY() stays fast
+    ramps = ramps.filter(r => r.x1 > cut);
+    gaps = gaps.filter(g => g.x1 > cut);
+    items = items.filter(it => !it.got && it.x > cut);
+    obstacles = obstacles.filter(o => !o.hit && o.x > cut);
+  }
+  function resetRun() {
     tr.x = 120; tr.vx = 0; tr.vy = 0; tr.angle = 0; tr.angVel = 0; tr.onGround = true; tr.slopePrev = 0; tr.airRot = 0; tr.spin = 0; tr.airTime = 0;
     tr.y = groundY(tr.x) - RIDE_H;
-    particles = []; dist = 0; coins = 0; fuel = 1; flipT = 0; tick = 0; banner = null; lastMile = 0; flipCount = 0;
+    particles = []; dist = 0; coins = 0; fuel = 1; boost = 0; tick = 0; banner = null; lastMile = 0; flipCount = 0;
     cam.x = 0; cam.y = 0; running = true;
-    ensureAudio(); engineStart();
-    banner = { txt: 'LEVEL ' + L, col: '#58e08a', t: 120 };
-    hideOverlays(); updateHud();
+    ensureAudio(); engineStart(); hideOverlays();
+  }
+  function startLevel(L) {
+    endless = false; level = L; genLevel(L); resetRun();
+    banner = { txt: 'LEVEL ' + L + ' · ' + theme.name, col: '#58e08a', t: 130 };
+    updateHud();
+  }
+  function startEndless() {
+    endless = true; level = 1; theme = themeFor(1); hillA = 30;
+    ramps = []; gaps = []; items = []; obstacles = []; finishX = Infinity; lastFeatureX = 400;
+    resetRun(); endlessSpawn();
+    banner = { txt: 'ENDLESS RUN! 🏁', col: '#ffd23d', t: 130 };
+    updateHud();
   }
 
   // ---------- sound ----------
@@ -136,8 +182,9 @@
   }
   bindPedal(document.getElementById('gasPedal'), 'gas');
   bindPedal(document.getElementById('brakePedal'), 'brake');
-  window.addEventListener('keydown', (e) => { if (e.code === 'ArrowRight' || e.code === 'Space') input.gas = true; if (e.code === 'ArrowLeft') input.brake = true; });
-  window.addEventListener('keyup', (e) => { if (e.code === 'ArrowRight' || e.code === 'Space') input.gas = false; if (e.code === 'ArrowLeft') input.brake = false; });
+  const nitroEl = document.getElementById('nitroBtn'); if (nitroEl) bindPedal(nitroEl, 'nitro');
+  window.addEventListener('keydown', (e) => { if (e.code === 'ArrowRight' || e.code === 'Space') input.gas = true; if (e.code === 'ArrowLeft') input.brake = true; if (e.code === 'ArrowUp' || e.code === 'ShiftLeft') input.nitro = true; });
+  window.addEventListener('keyup', (e) => { if (e.code === 'ArrowRight' || e.code === 'Space') input.gas = false; if (e.code === 'ArrowLeft') input.brake = false; if (e.code === 'ArrowUp' || e.code === 'ShiftLeft') input.nitro = false; });
 
   // ---------- update ----------
   function update(dt) {
@@ -151,11 +198,14 @@
       if (!isFinite(ga) || Math.abs(ga) > 1.2) ga = tr.angle;   // near a lip/gap edge → keep current (don't spike)
       const targetAngle = clamp(ga, -0.85, 0.85);
       tr.angle = lerp(tr.angle, targetAngle, 0.35 * dt);
+      const boosting = input.nitro && st.hasNitro && boost > 0 && hasFuel;
       if (gas) tr.vx += st.accel * dt;
       if (brake) tr.vx -= 0.5 * dt;
+      if (boosting) { tr.vx += st.accel * 2.2 * dt; boost = clamp(boost - 0.018 * dt, 0, 1); fuel = clamp(fuel - st.fuelDrain * 1.6 * dt, 0, 1); if ((tick | 0) % 2 === 0) particles.push({ x: tr.x - Math.cos(tr.angle) * 26, y: tr.y + 8, vx: -tr.vx * 0.2 - rand(1, 3), vy: rand(-0.6, 0.6), life: 0.5, r: rand(4, 8), c: 'rgba(255,150,40,0.85)' }); }
+      else if (Math.abs(tr.vx) > 1) boost = clamp(boost + 0.0015 * dt, 0, 1);   // nitro recharges while driving
       tr.vx += Math.sin(targetAngle) * st.uphill * dt;
-      tr.vx *= Math.pow(0.992, dt);
-      tr.vx = clamp(tr.vx, -5.5, st.maxSpeed);
+      tr.vx *= Math.pow(theme.fric, dt);
+      tr.vx = clamp(tr.vx, -5.5, st.maxSpeed * (boosting ? 1 + st.nitroPow : 1));
       const prevX = tr.x;
       tr.x += tr.vx * dt;
       if (tr.x < 40) { tr.x = 40; tr.vx = Math.max(0, tr.vx); }
@@ -184,8 +234,8 @@
     } else {
       tr.airTime = (tr.airTime || 0) + dt;
       tr.vy += GRAV * dt; tr.x += tr.vx * dt; tr.y += tr.vy * dt;
-      if (brake) { tr.angVel = clamp(tr.angVel + 0.0082 * dt, -0.02, 0.17); const d = tr.angVel * dt; tr.angle += d; tr.spin = (tr.spin || 0) + Math.abs(d); }
-      else { const flat = Math.round(tr.angle / (2 * Math.PI)) * (2 * Math.PI); tr.angle = lerp(tr.angle, flat, 0.06 * dt); tr.angVel = 0; }   // ease to nearest flat: commit past a half-flip and it auto-completes; little kids always land safe
+      if (brake) { tr.angVel = clamp(tr.angVel + 0.0082 * st.airCtrl * dt, -0.02, Math.min(0.17 * st.airCtrl, 0.32)); const d = tr.angVel * dt; tr.angle += d; tr.spin = (tr.spin || 0) + Math.abs(d); }   // Air Control = faster spins
+      else { const flat = Math.round(tr.angle / (2 * Math.PI)) * (2 * Math.PI); tr.angle = lerp(tr.angle, flat, Math.min(0.06 * st.airCtrl, 0.2) * dt); tr.angVel = 0; }   // ease to nearest flat: commit past a half-flip and it auto-completes; little kids always land safe
       const gy = groundY(tr.x);
       if (gy < 90000) {
         if (tr.airTime > 2 && tr.vy >= 0 && tr.y >= gy - RIDE_H) {   // only land when descending (no 1-frame re-land glitch)
@@ -202,21 +252,32 @@
       } else if (tr.y > GROUND_BASE() + 250) { crash('gap'); return; }   // not enough speed → fell into the pit
     }
 
-    // finish line
+    // finish line (campaign only; endless finishX = Infinity)
     if (tr.x >= finishX) { finishLevel(); return; }
 
     dist = Math.max(dist, Math.floor(tr.x / 10));
     if (dist >= lastMile + 250) { lastMile = Math.floor(dist / 250) * 250; }
+    if (endless) endlessSpawn();
     engineUpdate();
     if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
     if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
 
     for (const it of items) {
       if (it.got) continue;
-      if (Math.hypot(it.x - tr.x, it.y - tr.y) < 46) {
+      const d = Math.hypot(it.x - tr.x, it.y - tr.y);
+      if (st.magnetR && d < st.magnetR && d > 8) { it.x += (tr.x - it.x) * 0.16 * dt; it.y += (tr.y - it.y) * 0.16 * dt; }   // coin magnet
+      if (d < 46) {
         it.got = true;
-        if (it.type === 'bale') { coins += 5; spawnParticles(it.x, it.y, '#e7c65a', 10); sfx.bale(); sfx.coin(); }
+        if (it.type === 'bale') { coins += 5; boost = clamp(boost + 0.06, 0, 1); spawnParticles(it.x, it.y, '#e7c65a', 10); sfx.bale(); sfx.coin(); }
         else { fuel = clamp(fuel + 0.42, 0, 1); spawnParticles(it.x, it.y, '#58e08a', 10); sfx.fuel(); }
+        updateHud();
+      }
+    }
+    for (const o of obstacles) {   // smashable logs — plow through at speed / with a big rig, else bonk & slow (never a crash)
+      if (o.hit) continue;
+      if (tr.onGround && Math.abs(o.x - tr.x) < o.w / 2 + 22 && Math.abs((baseGround(o.x) - RIDE_H) - tr.y) < 64) {
+        if (st.smash || Math.abs(tr.vx) > 7.5) { o.hit = true; coins += 8; tr.vx *= 0.86; spawnParticles(o.x, baseGround(o.x) - 20, '#caa46a', 14); shake(); sfx.bale(); showBanner('SMASH! +8🪙', '#ffd23d'); }
+        else { o.hit = true; tr.vx *= 0.4; spawnParticles(o.x, baseGround(o.x) - 20, '#8a6a3a', 8); sfx.land(); }
         updateHud();
       }
     }
@@ -230,11 +291,13 @@
 
   function crash(cause) {
     running = false; spawnParticles(tr.x, tr.y, '#ff6a6a', 20); shake(); sfx.crash(); engineStop();
-    save.coins += coins; if (dist > save.best) save.best = dist; persist();
-    document.getElementById('overTitle').textContent = cause === 'gap' ? 'Fell in the gap! 🕳️' : 'Flipped it! 🚜💥';
+    save.coins += coins; if (dist > save.best) save.best = dist;
+    if (endless && dist > save.bestEndless) save.bestEndless = dist;
+    persist();
+    document.getElementById('overTitle').textContent = endless ? 'Endless run over! 🏁' : (cause === 'gap' ? 'Fell in the gap! 🕳️' : 'Flipped it! 🚜💥');
     document.getElementById('overDist').textContent = dist;
     document.getElementById('overCoins').textContent = coins;
-    document.getElementById('overBest').textContent = save.bestLevel;
+    document.getElementById('overBest').textContent = endless ? save.bestEndless + 'm' : save.bestLevel;
     setTimeout(() => document.getElementById('overScreen').classList.remove('hidden'), 700);
   }
   function finishLevel() {
@@ -254,16 +317,19 @@
   const s2 = (wx) => wx - cam.x + (shakeT > 0 ? rand(-shakeT, shakeT) : 0);
   const sy2 = (wy) => wy - cam.y + (shakeT > 0 ? rand(-shakeT, shakeT) : 0);
   function render() {
-    const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#7ec8ff'); sky.addColorStop(1, '#cdeeff');
+    const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, theme.sky[0]); sky.addColorStop(1, theme.sky[1]);
     ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#8fc98a'; drawLayer(0.4, 70); ctx.fillStyle = '#6fb56a'; drawLayer(0.65, 36);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'; for (let i = 0; i < 5; i++) { const cx = ((i * 520 - cam.x * 0.25) % (W + 300)) - 150; cloud(cx, 60 + (i % 3) * 42); }
+    if (theme.night) { for (let i = 0; i < 26; i++) { const sx = ((i * 141 - cam.x * 0.08) % (W + 30) + W + 30) % (W + 30); ctx.fillStyle = 'rgba(255,255,255,' + (0.3 + (i % 3) * 0.22) + ')'; ctx.fillRect(sx, 16 + (i * 47 % 130), 2, 2); } ctx.fillStyle = 'rgba(255,255,240,0.92)'; ctx.beginPath(); ctx.arc(W - 74, 66, 24, 0, 7); ctx.fill(); }
+    ctx.fillStyle = theme.far1; drawLayer(0.4, 70); ctx.fillStyle = theme.far2; drawLayer(0.65, 36);
+    if (!theme.night) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; for (let i = 0; i < 5; i++) { const cx = ((i * 520 - cam.x * 0.25) % (W + 300)) - 150; cloud(cx, 60 + (i % 3) * 42); } }
     drawGround();
+    drawObstacles();
     drawFinish();
     for (const it of items) { if (it.got) continue; const x = s2(it.x), y = sy2(it.y) + Math.sin(tick / 16 + it.ph) * 2; if (x < -60 || x > W + 60) continue; ctx.font = '30px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(it.type === 'bale' ? '🌾' : '⛽', x, y); }
     ctx.textBaseline = 'alphabetic';
     for (const p of particles) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(s2(p.x), sy2(p.y), p.r, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     drawTractor();
+    if (theme.night && running) { const hx = s2(tr.x) + 24, hy = sy2(tr.y); const g = ctx.createRadialGradient(hx, hy, 8, hx + 150, hy, 300); g.addColorStop(0, 'rgba(255,246,190,0.30)'); g.addColorStop(1, 'rgba(255,246,190,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(hx, hy - 22); ctx.lineTo(hx + 340, hy - 150); ctx.lineTo(hx + 340, hy + 150); ctx.lineTo(hx, hy + 22); ctx.closePath(); ctx.fill(); }
     if (running && Math.abs(tr.vx) > 8) { ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2; for (let i = 0; i < 5; i++) { const yy = (i * 90 + tick * 6) % H; const len = Math.abs(tr.vx) * 4; const sx = W - (tick * 8 % W); ctx.beginPath(); ctx.moveTo(sx, yy); ctx.lineTo(sx - len, yy); ctx.stroke(); } }
     if (running && !tr.onGround) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '800 14px system-ui'; ctx.textAlign = 'center'; ctx.fillText('hold LEAN to flip! 🤸', W / 2, 120); }
     if (banner) { ctx.globalAlpha = clamp(banner.t / 30, 0, 1); ctx.fillStyle = banner.col; ctx.font = '900 30px system-ui'; ctx.textAlign = 'center'; ctx.fillText(banner.txt, W / 2, H * 0.28); ctx.globalAlpha = 1; }
@@ -273,7 +339,7 @@
   function drawGround() {
     // draw as filled columns so gaps read as pits
     const step = 6;
-    ctx.fillStyle = '#5aa84e';
+    ctx.fillStyle = theme.ground;
     for (let sx = -20; sx <= W + 20; sx += step) {
       const wx = cam.x + sx, gy = groundY(wx);
       if (gy > 90000) continue;   // gap → leave open (sky/pit shows through)
@@ -288,7 +354,7 @@
       ctx.fillStyle = grad; ctx.fillRect(gx0 - 2, topY - 2, gx1 - gx0 + 4, H - topY + 4);
     }
     // dirt + grass line
-    ctx.strokeStyle = '#3f8f3f'; ctx.lineWidth = 4; ctx.beginPath(); let pen = false;
+    ctx.strokeStyle = theme.grass; ctx.lineWidth = 4; ctx.beginPath(); let pen = false;
     for (let sx = -20; sx <= W + 20; sx += step) { const wx = cam.x + sx, gy = groundY(wx); if (gy > 90000) { pen = false; continue; } const y = gy - cam.y; if (!pen) { ctx.moveTo(sx, y); pen = true; } else ctx.lineTo(sx, y); }
     ctx.stroke();
     // ramp shading (a wooden ramp look)
@@ -296,8 +362,20 @@
     // gap warning stripes at the edges
     for (const g of gaps) { for (const ex of [g.x0, g.x1]) { const x = s2(ex), y = baseGround(ex) - cam.y; if (x < -20 || x > W + 20) continue; ctx.fillStyle = '#ffd23d'; ctx.fillRect(x - 3, y - 16, 6, 16); ctx.fillStyle = '#1a1a1e'; ctx.fillRect(x - 3, y - 12, 6, 4); } }
   }
+  function drawObstacles() {
+    for (const o of obstacles) {
+      if (o.hit) continue;
+      const x = s2(o.x), gy = baseGround(o.x) - cam.y; if (x < -40 || x > W + 40) continue;
+      ctx.save(); ctx.translate(x, gy - 11);
+      ctx.globalAlpha = 0.2; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 12, o.w / 2 + 2, 5, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = '#6b4a2a'; roundRect(-o.w / 2, -11, o.w, 22, 6); ctx.fill();
+      ctx.fillStyle = '#8a6238'; ctx.beginPath(); ctx.ellipse(o.w / 2 - 3, 0, 6, 11, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#5a3c22'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(o.w / 2 - 3, 0, 3, 6, 0, 0, 7); ctx.stroke();
+      ctx.restore();
+    }
+  }
   function drawFinish() {
-    const x = s2(finishX); if (x < -40 || x > W + 200) return;
+    const x = s2(finishX); if (!isFinite(x) || x < -40 || x > W + 200) return;
     const gy = baseGround(finishX) - cam.y;
     ctx.strokeStyle = '#ddd'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy - 120); ctx.stroke();
     for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) { ctx.fillStyle = (r + c) % 2 ? '#111' : '#fff'; ctx.fillRect(x + c * 12, gy - 120 + r * 12, 12, 12); }
@@ -331,12 +409,14 @@
 
   // ---------- HUD / overlays ----------
   function updateHud() {
-    document.getElementById('trLevel').textContent = level;
+    document.getElementById('trLevel').textContent = endless ? '∞' : level;
     document.getElementById('trDist').textContent = dist;
-    document.getElementById('trTarget').textContent = Math.floor(finishX / 10);
+    document.getElementById('trTarget').textContent = endless ? Math.max(save.bestEndless, dist) : Math.floor(finishX / 10);
     document.getElementById('trCoins').textContent = save.coins + coins;
     const f = document.getElementById('trFuel'); if (f) f.style.width = Math.round(fuel * 100) + '%';
-    const pr = document.getElementById('trProg'); if (pr) pr.style.width = clamp(tr.x / finishX * 100, 0, 100) + '%';
+    const pw = document.getElementById('trProgWrap'); if (pw) pw.style.display = endless ? 'none' : 'block';
+    const pr = document.getElementById('trProg'); if (pr && !endless) pr.style.width = clamp(tr.x / finishX * 100, 0, 100) + '%';
+    const nb = document.getElementById('nitroBtn'); if (nb) { nb.style.display = (running && stats().hasNitro) ? 'flex' : 'none'; const nf = document.getElementById('nitroFill'); if (nf) nf.style.height = Math.round(boost * 100) + '%'; }
   }
   const toastEl = document.getElementById('toast'); let toastT = null;
   function toast(m) { if (!toastEl) return; toastEl.textContent = m; toastEl.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove('show'), 900); }
@@ -356,10 +436,11 @@
     head('⚙️ Upgrades');
     for (const k of Object.keys(UP)) { const u = UP[k], lv = save.up[k]; const bars = '▮'.repeat(lv) + '▯'.repeat(u.max - lv); if (lv >= u.max) row(u.emoji, u.name + '  ' + bars, u.desc, '', false, null, 'MAX'); else { const c = upCost(k); row(u.emoji, u.name + '  ' + bars, u.desc, '🪙 ' + c, save.coins >= c, () => { if (save.coins >= c) { save.coins -= c; save.up[k]++; sfx.coin && sfx.coin(); persist(); } }); } }
     head('🚜 Tractors');
-    for (const k of Object.keys(MODELS)) { const m = MODELS[k]; if (save.owned[k]) row(m.emoji, m.name + (m.spd > 1 ? ' ·  faster' : ''), k === save.model ? 'Currently driving.' : 'Tap to drive this one.', k === save.model ? '' : 'Select', k !== save.model, () => { save.model = k; persist(); }, k === save.model ? 'DRIVING' : null); else row(m.emoji, m.name, 'Faster top speed & pull.', '🪙 ' + m.cost, save.coins >= m.cost, () => { if (save.coins >= m.cost) { save.coins -= m.cost; save.owned[k] = true; save.model = k; persist(); } }); }
+    for (const k of Object.keys(MODELS)) { const m = MODELS[k]; const note = (m.smash ? 'Smashes logs! ' : '') + (m.spd > 1 ? 'Faster top speed & pull.' : 'The trusty starter.'); if (save.owned[k]) row(m.emoji, m.name + (m.spd > 1 ? ' ·  faster' : ''), k === save.model ? 'Currently driving.' : note, k === save.model ? '' : 'Select', k !== save.model, () => { save.model = k; persist(); }, k === save.model ? 'DRIVING' : null); else row(m.emoji, m.name, note, '🪙 ' + m.cost, save.coins >= m.cost, () => { if (save.coins >= m.cost) { save.coins -= m.cost; save.owned[k] = true; save.model = k; persist(); } }); }
   }
   document.getElementById('trPlay').onclick = () => startLevel(save.bestLevel || 1);
-  document.getElementById('trAgain').onclick = () => startLevel(level);
+  const endlessBtn = document.getElementById('trEndless'); if (endlessBtn) endlessBtn.onclick = () => startEndless();
+  document.getElementById('trAgain').onclick = () => { endless ? startEndless() : startLevel(level); };
   document.getElementById('trNext').onclick = () => startLevel(level + 1);
   document.getElementById('trGarageBtn').onclick = () => { ensureAudio(); openGarage(); };
   document.getElementById('trGarage2').onclick = openGarage;
@@ -373,10 +454,10 @@
 
   if (location.hash.indexOf('debug') !== -1 || location.search.indexOf('debug') !== -1) {
     window.__tractor = {
-      startLevel, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
+      startLevel, startEndless, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
       hold(k, v) { input[k] = v; },
-      info() { return { running, level, dist, target: Math.floor(finishX / 10), coins, savedCoins: save.coins, fuel: +fuel.toFixed(2), x: tr.x | 0, y: tr.y | 0, vx: +tr.vx.toFixed(2), onGround: tr.onGround, angle: +tr.angle.toFixed(2), spin: +(tr.spin || 0).toFixed(2), airTime: +(tr.airTime || 0).toFixed(0), flipCount, bestLevel: save.bestLevel, gaps: gaps.length, ramps: ramps.length }; },
-      addCoins(n) { save.coins += (n || 1000); persist(); }, buyUp(k) { if (save.up[k] < UP[k].max) { save.coins -= upCost(k); save.up[k]++; persist(); } }, stats,
+      info() { return { running, level, endless, theme: theme.name, dist, target: isFinite(finishX) ? Math.floor(finishX / 10) : 'inf', coins, savedCoins: save.coins, fuel: +fuel.toFixed(2), boost: +boost.toFixed(2), x: tr.x | 0, y: tr.y | 0, vx: +tr.vx.toFixed(2), onGround: tr.onGround, angle: +tr.angle.toFixed(2), spin: +(tr.spin || 0).toFixed(2), airTime: +(tr.airTime || 0).toFixed(0), flipCount, bestLevel: save.bestLevel, bestEndless: save.bestEndless, gaps: gaps.length, ramps: ramps.length, obstacles: obstacles.length }; },
+      addCoins(n) { save.coins += (n || 1000); persist(); }, buyUp(k) { if (save.up[k] < UP[k].max) { save.coins -= upCost(k); save.up[k]++; persist(); } }, setModel(m) { save.owned[m] = true; save.model = m; persist(); }, stats,
       lastErr() { return lastErr ? String(lastErr.stack || lastErr) : null; },
     };
   }
