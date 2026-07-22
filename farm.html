@@ -80,6 +80,16 @@
     </div>
   </div>
 
+  <!-- difficulty / mode picker -->
+  <div id="modeScreen" class="overlay hidden">
+    <div class="panel panel-wide mode-panel">
+      <h2 id="modeTitle">🐑 Pick your farm</h2>
+      <p class="tagline mode-sub" id="modeSub">How tough should the farm be? You can change this later in ⚙ Menu.</p>
+      <div id="modeList" class="mode-list"></div>
+      <button class="btn btn-ghost hidden" id="modeBack">‹ Back</button>
+    </div>
+  </div>
+
   <!-- save slot picker -->
   <div id="slotScreen" class="overlay hidden">
     <div class="panel">
@@ -96,6 +106,7 @@
     <div class="panel">
       <h2>⚙ Menu</h2>
       <button class="btn btn-primary" id="menuSwitch">👥 Switch Farm</button>
+      <button class="btn btn-ghost" id="menuDiff">🎚️ Change Difficulty</button>
       <button class="btn btn-ghost" id="menuRestart">🔄 Restart this Farm</button>
       <button class="btn btn-ghost" id="menuClose">Back to the farm</button>
     </div>

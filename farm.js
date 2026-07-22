@@ -34,6 +34,35 @@
   const SAVE_KEY = SAVE_BASE;   // legacy single-save key (migrated into slot 0)
   const FEED_COST = 8, WATER_COST = 3, PEN_COST = 120;
   const ERAS = [{ name: 'Homestead', ic: '🏡' }, { name: 'Smallholding', ic: '🚜' }, { name: 'Estate', ic: '🏘️' }, { name: 'Grand Estate', ic: '🏛️' }, { name: 'Sheep Empire', ic: '👑' }];
+  // ---------- difficulty / farm modes (picks the whole feel: threats, pace, starting flock) ----------
+  const DIFFS = {
+    little: {
+      key: 'little', name: 'Little Farmer', emoji: '🐑', age: 'Ages 5–8', tint: '#7ed957',
+      blurb: 'No wolves. The odd fox pops by, but your dogs shoo every one away — nothing ever hurts your flock. Just build your dream farm! 💚',
+      wolves: false, foxKill: false, foxRate: 0.45, guardian: true,
+      needMul: 0.5, breed: 1.6, startMoney: 500, startSheep: 6, startCap: 14,
+    },
+    helper: {
+      key: 'helper', name: 'Farm Hand', emoji: '🐕', age: 'Ages 7–10', tint: '#4bc0e0',
+      blurb: 'Cheeky foxes sneak in, but your dog always chases them off before they can grab a sheep. Grow a big, happy, safe flock. 🐕',
+      wolves: false, foxKill: false, foxRate: 0.85, guardian: true,
+      needMul: 0.7, breed: 1.25, startMoney: 240, startSheep: 5, startCap: 11,
+    },
+    grazier: {
+      key: 'grazier', name: 'Grazier', emoji: '🚜', age: 'Ages 10+', tint: '#e0a848',
+      blurb: 'Foxes WILL grab a stray sheep if you leave them out. Keep the flock close, work your dogs, pen them up. A real farm to run. 🚜',
+      wolves: false, foxKill: true, foxRate: 1, guardian: false,
+      needMul: 1, breed: 1, startMoney: 90, startSheep: 3, startCap: 6,
+    },
+    station: {
+      key: 'station', name: 'Wolf Country', emoji: '🐺', age: 'God Mode', tint: '#c94a3a',
+      blurb: 'Foxes AND night-time WOLF PACKS raid the farm. Build stone pens, train your dogs, defend the flock. The full challenge! 🐺',
+      wolves: true, foxKill: true, foxRate: 1.3, guardian: false,
+      needMul: 1.1, breed: 1, startMoney: 90, startSheep: 3, startCap: 6,
+    },
+  };
+  const DIFF_ORDER = ['little', 'helper', 'grazier', 'station'];
+  const curDiff = () => DIFFS[(F && F.diff) || 'grazier'] || DIFFS.grazier;
   const BREEDS = {
     normal: { name: 'Woolly', mult: 1, cost: 55, wool: '#f4f3ee', lvl: 1 },
     merino: { name: 'Merino', mult: 1.9, cost: 240, wool: '#efe7d2', lvl: 2 },
@@ -91,7 +120,18 @@
     house: { level: 1 }, plants: null, troughs: null, workers: [], buildings: [], tech: {},
     shearGear: 1, records: { woolCrop: 0 },
     dayT: 0, seasonT: 0, weather: 'clear', weatherT: 900, won: false, tutorialDone: false, muted: false, lastTime: nowMs(),
+    diff: null,
   });
+  // stamp a fresh farm with its chosen difficulty: starting purse, flock size + cap
+  function applyDiffStart(f) {
+    const d = DIFFS[f.diff]; if (!d) return;
+    f.money = d.startMoney;
+    f.sheepCap = Math.max(f.sheepCap || 6, d.startCap);
+    const arr = [];
+    for (let k = 0; k < d.startSheep; k++) arr.push({ breed: 'normal', role: (k === Math.floor(d.startSheep / 2)) ? 'ram' : 'ewe', wool: Math.round(rand(6, 28)) });
+    if (!arr.some(s => s.role === 'ram') && arr.length) arr[arr.length - 1].role = 'ram';
+    f.sheep = arr;
+  }
   const WIN_MONEY = 20000;   // amass this in the Sheep Empire era to win the Golden Fleece
 
   let F = null;
@@ -296,8 +336,59 @@
   function persist() { if (!F) return; F.lastTime = nowMs(); F.sheep = sheep.map(s => ({ breed: s.breed, role: s.role, wool: s.wool, hunger: s.hunger, thirst: s.thirst, size: s.size, age: s.age, sick: s.sick })); try { localStorage.setItem(saveKey(), JSON.stringify(F)); } catch (e) {} }
   function restartFarm() { try { localStorage.removeItem(saveKey()); } catch (e) {} F = null; running = false; shearSession = null; showSlotPicker(); }
 
+  // ---------- difficulty / mode picker ----------
+  function showModeSelect(which) {
+    modeSelectMode = which || 'new';
+    const g = (id) => document.getElementById(id);
+    const scr = g('modeScreen'); if (!scr) { pendingDiff = pendingDiff || 'grazier'; startGame(); return; }
+    const list = g('modeList');
+    if (list) {
+      list.innerHTML = '';
+      const cur = F && F.diff;
+      for (const k of DIFF_ORDER) {
+        const d = DIFFS[k], isCur = modeSelectMode === 'change' && cur === k;
+        const card = document.createElement('button');
+        card.className = 'mode-card' + (isCur ? ' cur' : '');
+        card.style.setProperty('--tint', d.tint);
+        card.innerHTML =
+          '<span class="mode-emoji">' + d.emoji + '</span>' +
+          '<span class="mode-main"><span class="mode-top"><span class="mode-name">' + d.name + '</span>' +
+          '<span class="mode-age">' + d.age + '</span></span>' +
+          '<span class="mode-blurb">' + d.blurb + '</span></span>' +
+          (isCur ? '<span class="mode-flag">✓ Now</span>' : '<span class="mode-go">▶</span>');
+        card.onclick = () => chooseMode(k);
+        list.appendChild(card);
+      }
+    }
+    const title = g('modeTitle'); if (title) title.textContent = modeSelectMode === 'change' ? '🎚️ Change Difficulty' : '🐑 Pick your farm';
+    const sub = g('modeSub'); if (sub) sub.textContent = modeSelectMode === 'change'
+      ? 'Switch this farm’s challenge any time — your sheep, money & buildings all stay.'
+      : 'How tough should the farm be? Younger farmers pick the top ones. You can change this later in ⚙ Menu.';
+    const back = g('modeBack'); if (back) back.classList.toggle('hidden', modeSelectMode !== 'change');
+    for (const id of ['startScreen', 'slotScreen', 'menuScreen']) { const o = g(id); if (o) o.classList.add('hidden'); }
+    scr.classList.remove('hidden');
+  }
+  function chooseMode(k) {
+    const scr = document.getElementById('modeScreen'); if (scr) scr.classList.add('hidden');
+    if (modeSelectMode === 'change') applyDiffChange(k);
+    else { pendingDiff = k; startGame(); }
+  }
+  function applyDiffChange(k) {
+    if (!F || !DIFFS[k]) return;
+    F.diff = k; preds.length = 0; const d = DIFFS[k];
+    F.sheepCap = Math.max(F.sheepCap, d.startCap);
+    toast(d.emoji + ' Difficulty set to ' + d.name); flashAlert(d.emoji + ' ' + d.name + '!', d.tint, true); sfx.up();
+    persist(); updateHud();
+  }
+
+  let pendingDiff = null, modeSelectMode = 'new';
   function startGame() {
+    const fresh = !slotRaw();
+    if (fresh && !pendingDiff) { showModeSelect('new'); return; }   // brand-new farm → pick a difficulty first
     F = load(); layout(); ensureAudio();
+    if (fresh) { F.diff = pendingDiff || 'grazier'; applyDiffStart(F); }
+    if (!F.diff) F.diff = 'grazier';   // legacy saves = the classic balance
+    pendingDiff = null;
     if (typeof F.energy !== 'number') F.energy = F.power === 'electric' ? 3 : F.power === 'economical' ? 1 : 0;
     if (typeof F.wood !== 'number') F.wood = 25; if (typeof F.stone !== 'number') F.stone = 0;
     if (!F.workers) F.workers = []; if (!F.buildings) F.buildings = []; if (!F.tech) F.tech = {};
@@ -414,7 +505,7 @@
 
   // a night pack raid led by an Alpha wolf (tough, needs walls + dogs)
   function maybePackRaid() {
-    if (F._nofox || sheep.length === 0 || F.farmLevel < 3 || preds.some(p => p.alpha)) return;
+    if (F._nofox || !curDiff().wolves || sheep.length === 0 || F.farmLevel < 3 || preds.some(p => p.alpha)) return;
     if (Math.random() > 0.28 + (F.farmLevel - 3) * 0.06) return;
     spawnPack();
   }
@@ -430,7 +521,7 @@
     tick += dt;
     F.dayT = (F.dayT || 0) + dt;
     const night = nightAmt(), nowNight = night > 0.5;
-    if (nowNight && !wasNight) { flashAlert('🌙 Night falls — watch for wolves!', '#7a8fff', true); toast('🌙 Night falls...'); maybePackRaid(); }
+    if (nowNight && !wasNight) { if (curDiff().wolves) { flashAlert('🌙 Night falls — watch for wolves!', '#7a8fff', true); toast('🌙 Night falls...'); } else { flashAlert('🌙 Goodnight, farm 🐑', '#7a8fff', true); toast('🌙 Night falls — your dogs keep watch.'); } maybePackRaid(); }
     else if (!nowNight && wasNight) { toast('☀️ A new day dawns!'); }
     wasNight = nowNight;
 
@@ -460,7 +551,7 @@
       if (herdGoal.t <= 0 || F.pens.indexOf(herdGoal.pen) < 0) herdGoal = null;
       else if (!herdGoal.announced) { const grown = sheep.filter(s => s.role !== 'lamb'); if (grown.length && grown.every(s => penInsideStrict(herdGoal.pen, s.x, s.y))) { herdGoal.announced = true; toast('🐑 All penned! Tap a fluffy ✂️ sheep to shear.'); flashAlert('🐑 All in — tap one to shear!', '#58e08a'); } }
     }
-    const needM = techNeedMult();
+    const needM = techNeedMult() * curDiff().needMul;
 
     const winter = season === 3, summer = season === 1, snowing = F.weather === 'snow';
     const vetOn = hasBuilding('vet'), sickChanceMul = (T('vaccine') ? 0.2 : 1);
@@ -547,21 +638,23 @@
 
     breedTimer -= dt;
     if (breedTimer <= 0) {
-      breedTimer = rand(2200, 3600);
+      breedTimer = rand(2200, 3600) / curDiff().breed;
       const rams = sheep.filter(s => s.role === 'ram' && s.health > 60), ewes = sheep.filter(s => s.role === 'ewe' && s.health > 60 && s.breedCD <= 0);
       if (rams.length && ewes.length && sheep.length < F.sheepCap) { const mum = ewes[(Math.random() * ewes.length) | 0]; mum.breedCD = rand(2200, 3400); sheep.push(makeSheep({ x: mum.x + rand(-10, 10), y: mum.y + 14, breed: mum.breed, role: 'lamb' })); toast('💕 A lamb was born!'); confetti(mum.x, mum.y - 10, ['💕', '🐑', '✨']); sfx.up(); persist(); updateHud(); }
     }
 
     predTimer -= dt;
-    if (predTimer <= 0 && sheep.length > 0 && preds.length < 4 && !F._nofox) {
-      predTimer = rand(2600, 4400) / (1 + (F.farmLevel - 1) * 0.3) / (1 + night * 0.9);   // raids come faster at night
-      const wolfChance = (F.farmLevel >= 2 ? 0.22 + (F.farmLevel - 2) * 0.06 : 0) + night * 0.35;   // wolves prowl the night
+    const dcfg = curDiff();
+    if (predTimer <= 0 && sheep.length > 0 && preds.length < 4 && !F._nofox && dcfg.foxRate > 0) {
+      predTimer = rand(2600, 4400) / dcfg.foxRate / (1 + (F.farmLevel - 1) * 0.3) / (1 + night * 0.9);   // raids come faster at night / on tougher farms
+      const wolfChance = dcfg.wolves ? ((F.farmLevel >= 2 ? 0.22 + (F.farmLevel - 2) * 0.06 : 0) + night * 0.35) : 0;   // wolves only prowl Wolf Country
       const spawn = (left, wolf) => preds.push({ x: left ? paddock.x + 6 : paddock.x + paddock.w - 6, y: rand(paddock.y + 20, paddock.y + paddock.h - 20), fleeing: false, dead: false, facing: 1, wolf: !!wolf });
       const left = Math.random() < 0.5;
       if (Math.random() < wolfChance) { spawn(left, true); flashAlert('🐺 WOLF!', '#c94a3a', true); toast('🐺 A wolf is on the prowl!'); sfx.wolf(); if (Math.random() < 0.3 && preds.length < 4) spawn(!left, true); }
-      else { spawn(left, false); flashAlert('🦊 FOX!', '#ff6a3a'); sfx.fox(); if (Math.random() < 0.13 + (F.farmLevel - 1) * 0.03 && preds.length < 4) { spawn(!left, false); flashAlert('🦊🦊 DOUBLE FOX RAID!', '#ff4d4d', true); } }
-    }
-    const dogRange = techDogRange();
+      else if (dcfg.foxKill) { spawn(left, false); flashAlert('🦊 FOX!', '#ff6a3a'); sfx.fox(); if (Math.random() < 0.13 + (F.farmLevel - 1) * 0.03 && preds.length < 4) { spawn(!left, false); flashAlert('🦊🦊 DOUBLE FOX RAID!', '#ff4d4d', true); } }
+      else { spawn(left, false); flashAlert('🦊 A fox! Woofa’s on it 🐕', '#ff9a3a'); sfx.fox(); }
+    } else if (predTimer <= 0 && dcfg.foxRate <= 0) { predTimer = 3000; }
+    const dogRange = techDogRange() * (curDiff().guardian ? 1.8 : 1);   // guardian farms: dogs spot & fling foxes from way off
     for (let i = preds.length - 1; i >= 0; i--) {
       const fx = preds[i];
       if (fx.dead) { fx.x += fx.vx * dt; fx.y += fx.vy * dt; fx.vy += 0.12 * dt; fx.spin += 0.35 * dt; fx.tumble += dt; if (fx.x < -60 || fx.x > W + 60 || fx.y > H + 80 || fx.tumble > 130) preds.splice(i, 1); continue; }
@@ -570,7 +663,7 @@
       let tx, ty;
       if (fx.stun > 0) { fx.stun -= dt; tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x + 20 : paddock.x + paddock.w - 20; ty = fx.y; }   // alpha recovering from a hit
       else if (fx.fleeing) { tx = fx.x < paddock.x + paddock.w / 2 ? paddock.x - 40 : paddock.x + paddock.w + 40; ty = fx.y; }
-      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16 && !predShielded(best, fx)) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast((fx.alpha ? '🐺 The ALPHA' : fx.wolf ? '🐺 A wolf' : '🦊 A fox') + ' took a sheep! Guard them!'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } if (fx.alpha) fx.stun = 30; else fx.fleeing = true; } } else { if (!fx.alpha) fx.fleeing = true; tx = fx.x; ty = fx.y; } }
+      else { let best = null, bd = 1e9; for (const s of sheep) { const dd = dist(fx.x, fx.y, s.x, s.y); if (dd < bd) { bd = dd; best = s; } } if (best) { tx = best.x; ty = best.y; if (bd < 16 && !predShielded(best, fx)) { if (curDiff().foxKill) { const idx = sheep.indexOf(best); if (idx >= 0) { sheep.splice(idx, 1); toast((fx.alpha ? '🐺 The ALPHA' : fx.wolf ? '🐺 A wolf' : '🦊 A fox') + ' took a sheep! Guard them!'); pop(best.x, best.y, '💔', '#ff6a6a'); sfx.err(); persist(); updateHud(); } } else { const a2 = Math.atan2(best.y - fx.y, best.x - fx.x); best.tx = best.x + Math.cos(a2) * 90; best.ty = best.y + Math.sin(a2) * 90; best.moveT = 22; best.baaT = 20; pop(best.x, best.y - 8, '💨', '#dfefff'); sfx.baa(); } if (fx.alpha) fx.stun = 30; else fx.fleeing = true; } } else { if (!fx.alpha) fx.fleeing = true; tx = fx.x; ty = fx.y; } }
       const a = Math.atan2(ty - fx.y, tx - fx.x), sp = fx.stun > 0 ? 2.4 : fx.fleeing ? (fx.wolf ? 3.4 : 3.0) : (fx.alpha ? 2.4 : fx.wolf ? 2.1 : 1.5);
       fx.x += Math.cos(a) * sp * dt; fx.y += Math.sin(a) * sp * dt; fx.facing = Math.cos(a) >= 0 ? 1 : -1;
       repelFromPens(fx, 12, true);  // stone pens are predator-proof
@@ -1068,7 +1161,7 @@
   }
   function goalInfo() {
     if (F.won) return { text: '🏆 Golden Fleece won — sandbox on!', pct: 1, done: true };
-    if (F.farmLevel < ERAS.length) { const c = expandCost(); return { text: '🎯 Reach the ' + ERAS[F.farmLevel].name + ' era', pct: clamp(F.money / c, 0, 1), done: false }; }
+    if (F.farmLevel < ERAS.length) { const c = expandCost(); return { text: '🎯 Level ' + (F.farmLevel + 1) + ' → ' + ERAS[F.farmLevel].ic + ' ' + ERAS[F.farmLevel].name, pct: clamp(F.money / c, 0, 1), done: false }; }
     return { text: '🏆 Amass $' + WIN_MONEY + ' for the Golden Fleece', pct: clamp(F.money / WIN_MONEY, 0, 1), done: false };
   }
   const toastEl = el('toast');
@@ -1096,7 +1189,13 @@
   ];
   let tutIx = 0;
   function startTutorial() { tutIx = 0; showTut(); }
-  function showTut() { const o = el('tutOverlay'); if (!o) return; el('tutText').textContent = TUT[tutIx].t; el('tutStep').textContent = (tutIx + 1) + ' / ' + TUT.length; el('tutNext').textContent = tutIx === TUT.length - 1 ? 'Let\'s farm! 🐑' : 'Next ›'; o.classList.remove('hidden'); }
+  function lastTutText() {
+    const d = curDiff();
+    if (d.wolves) return '🦊 Foxes AND 🐺 wolf packs raid at night — herd sheep into a 🧱 stone pen and shut the gate! Dogs FLING predators. Level up to grow. Have fun! 🐑';
+    if (d.foxKill) return '🦊 Foxes will try to grab a stray — keep the flock close and let your dogs chase them off! Level up your farm to grow. Have fun! 🐑';
+    return '🦊 A cheeky fox might pop by — but your dogs shoo every one away, so your flock is always safe! Just build, breed & grow. Have fun! 🐑';
+  }
+  function showTut() { const o = el('tutOverlay'); if (!o) return; el('tutText').textContent = (tutIx === TUT.length - 1 && F) ? lastTutText() : TUT[tutIx].t; el('tutStep').textContent = (tutIx + 1) + ' / ' + TUT.length; el('tutNext').textContent = tutIx === TUT.length - 1 ? 'Let\'s farm! 🐑' : 'Next ›'; o.classList.remove('hidden'); }
   function nextTut() { tutIx++; if (tutIx >= TUT.length) return endTut(); showTut(); }
   function endTut() { const o = el('tutOverlay'); if (o) o.classList.add('hidden'); if (F) { F.tutorialDone = true; persist(); } }
   { const n = el('tutNext'); if (n) n.onclick = nextTut; const s = el('tutSkip'); if (s) s.onclick = endTut; }
@@ -1143,11 +1242,13 @@
   }
   function pickSlot(i) { curSlot = i; try { localStorage.setItem(SLOT_KEY, String(i)); } catch (e) {} const o = el('slotScreen'); if (o) o.classList.add('hidden'); startGame(); }
   function wipeSlot(i) { try { localStorage.removeItem(saveKey(i)); } catch (e) {} renderSlots(); }
-  function openMenu() { const m = el('menuScreen'); if (m) m.classList.remove('hidden'); const r = el('menuRestart'); if (r) r.textContent = '🔄 Restart this Farm'; }
+  function openMenu() { const m = el('menuScreen'); if (m) m.classList.remove('hidden'); const r = el('menuRestart'); if (r) r.textContent = '🔄 Restart this Farm'; const d = el('menuDiff'); if (d && F) d.textContent = '🎚️ Difficulty: ' + curDiff().emoji + ' ' + curDiff().name; }
   function closeMenu() { const m = el('menuScreen'); if (m) m.classList.add('hidden'); }
   { const b = el('btnMenu'); if (b) b.onclick = () => { if (running) openMenu(); }; }
   { const b = el('menuClose'); if (b) b.onclick = closeMenu; }
   { const b = el('menuSwitch'); if (b) b.onclick = () => { persist(); closeMenu(); showSlotPicker(); }; }
+  { const b = el('menuDiff'); if (b) b.onclick = () => { closeMenu(); showModeSelect('change'); }; }
+  { const b = el('modeBack'); if (b) b.onclick = () => { const o = el('modeScreen'); if (o) o.classList.add('hidden'); if (running) openMenu(); else { const s = el('startScreen'); if (s) s.classList.remove('hidden'); } }; }
   { let armed = false; const b = el('menuRestart'); if (b) b.onclick = () => { if (!armed) { armed = true; b.textContent = '⚠️ Tap again to wipe this farm'; setTimeout(() => { armed = false; b.textContent = '🔄 Restart this Farm'; }, 2500); return; } armed = false; closeMenu(); restartFarm(); }; }
   for (let i = 0; i < NSLOTS; i++) { const b = el('slot' + i); if (b) { b.onclick = (e) => { if (e.target && e.target.classList && e.target.classList.contains('slot-wipe')) return; pickSlot(i); }; const w = b.querySelector('.slot-wipe'); if (w) w.onclick = (e) => { e.stopPropagation(); wipeSlot(i); }; } }
   { const b = el('chooseFarm'); if (b) b.onclick = showSlotPicker; }
@@ -1221,12 +1322,13 @@
   if (location.hash.indexOf('debug') !== -1) {
     window.__farm = {
       start: startGame, step(n) { for (let i = 0; i < (n || 1); i++) update(1); render(); },
-      info() { return F ? { running, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, night: +nightAmt().toFixed(2), isNight: isNight(), won: !!F.won, workerLvls: workers.map(w => w.level || 1), season: SEASONS[seasonIx()].name, weather: F.weather, sick: sheep.filter(s => s.sick).length, alpha: preds.filter(p => p.alpha && !p.dead).length } : { running }; },
+      info() { return F ? { running, diff: F.diff, money: Math.floor(F.money), wool: Math.floor(F.wool), wood: Math.floor(F.wood), stone: Math.floor(F.stone), sheep: sheep.length, cap: F.sheepCap, feed: Math.floor(F.feed), water: Math.floor(F.water), era: F.farmLevel, house: F.house.level, energy: F.energy, workers: workers.length, workerCap: workerCap(), jobs: workers.reduce((m, w) => (m[w.job] = (m[w.job] || 0) + 1, m), {}), buildings: F.buildings.map(b => b.bkind), pens: F.pens.length, stonePens: F.pens.filter(p => p.stone).length, tech: Object.keys(F.tech).filter(k => F.tech[k]), preds: preds.length, wolves: preds.filter(p => p.wolf && !p.dead).length, plants: F.plants.length, herding: !!herdGoal, lambs: sheep.filter(s => s.role === 'lamb').length, rams: sheep.filter(s => s.role === 'ram').length, ewes: sheep.filter(s => s.role === 'ewe').length, night: +nightAmt().toFixed(2), isNight: isNight(), won: !!F.won, workerLvls: workers.map(w => w.level || 1), season: SEASONS[seasonIx()].name, weather: F.weather, sick: sheep.filter(s => s.sick).length, alpha: preds.filter(p => p.alpha && !p.dead).length } : { running }; },
       lastErr() { return lastErr ? String(lastErr && lastErr.stack || lastErr) : null; },
       give(m) { F.money += m; updateHud(); }, giveWood(w) { F.wood += w; updateHud(); }, giveStone(s) { F.stone += s; updateHud(); }, feed: refillFeed, water: refillWater, sell: sellWool,
       forceWool() { for (const s of sheep) if (s.role !== 'lamb') s.wool = 100; }, shearAll() { for (const s of sheep) if (s.wool >= 100 && s.role !== 'lamb') { if (!insideAnyPen(s.x, s.y)) { s.x = F.pens[0] ? F.pens[0].x + F.pens[0].w / 2 : s.x; s.y = F.pens[0] ? F.pens[0].y + F.pens[0].h / 2 : s.y; } shearSheep(s); } },
       spawnFox() { predTimer = -5; }, pushFox(wolf) { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: !!wolf }); }, pushWolf() { preds.push({ x: paddock.x + 6, y: paddock.y + paddock.h / 2, fleeing: false, dead: false, facing: 1, wolf: true }); }, killFox() { const t = preds.find(p => !p.dead); if (t && dogs[0]) catchPredator(t, dogs[0]); },
       noFox() { F._nofox = true; preds.length = 0; }, foxOn() { F._nofox = false; },
+      diff() { return F && F.diff; }, setDiff(k) { if (F && DIFFS[k]) { F.diff = k; preds.length = 0; updateHud(); } return F && F.diff; }, diffCfg() { return curDiff(); }, modeSelect(w) { showModeSelect(w || 'change'); }, chooseMode,
       forceBreed() { breedTimer = 0; for (const s of sheep) s.breedCD = 0; }, starve() { for (const s of sheep) { s.hunger = 100; s.thirst = 100; } F.feed = 0; F.water = 0; },
       addSheep(n) { for (let i = 0; i < (n || 1); i++) sheep.push(makeSheep({ role: i % 2 ? 'ram' : 'ewe', wool: 0 })); updateHud(); },
       satiate() { for (const s of sheep) { s.hunger = 8; s.thirst = 8; s.starve = 0; s.sick = false; } },
