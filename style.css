@@ -269,6 +269,21 @@ a.game-card:hover { border-color: rgba(255, 255, 255, 0.22); }
 .gc-desc { color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.35; }
 .gc-go { font-weight: 800; color: var(--accent); font-size: 15px; white-space: nowrap; }
 .gc-snake .gc-go { color: var(--good); }
+/* Trophy Room feature link on the home screen */
+.trophy-link {
+  display: flex; align-items: center; gap: 14px; text-decoration: none; color: var(--ink);
+  background: linear-gradient(180deg, rgba(255, 210, 61, 0.15), rgba(13, 21, 38, 0.92));
+  border: 1px solid rgba(255, 210, 61, 0.4); border-radius: 20px;
+  padding: 14px 16px; margin-bottom: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s ease, border-color 0.15s ease; flex-shrink: 0;
+}
+a.trophy-link:active { transform: scale(0.98); }
+a.trophy-link:hover { border-color: rgba(255, 210, 61, 0.7); }
+.tl-emoji { font-size: 32px; width: 54px; height: 54px; flex: 0 0 54px; display: flex; align-items: center; justify-content: center; border-radius: 16px; background: rgba(255, 210, 61, 0.16); }
+.tl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tl-title { font-weight: 900; font-size: 18px; }
+.tl-sub { color: var(--muted); font-size: 13px; margin-top: 2px; line-height: 1.35; }
+.trophy-link .gc-go { color: var(--accent-2); }
 .gc-tag-new {
   font-size: 10px; font-weight: 900; letter-spacing: 0.5px;
   background: var(--good); color: #05230f;

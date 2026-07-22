@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Woofa Trophy Room</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .trophy-stats { display: flex; gap: 10px; justify-content: center; margin: 2px auto 16px; max-width: 520px; }
+    .tstat { flex: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 13px 6px; text-align: center; }
+    .tstat-num { font-size: 25px; font-weight: 900; color: var(--accent-2, #ffd23d); line-height: 1.1; }
+    .tstat-lbl { font-size: 11.5px; color: var(--muted, #8b93a7); margin-top: 3px; }
+    .unlock-banner { max-width: 520px; margin: 0 auto 16px; padding: 13px 16px; border-radius: 16px; border: 1px solid rgba(232, 192, 32, 0.5); background: linear-gradient(160deg, rgba(232, 192, 32, 0.18), rgba(255, 255, 255, 0.04)); text-align: center; font-size: 14px; line-height: 1.4; }
+    .unlock-banner b { color: var(--accent-2, #ffd23d); }
+    .ub-bar { height: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.35); margin-top: 9px; overflow: hidden; }
+    .ub-fill { height: 100%; background: linear-gradient(90deg, #ffd23d, #ff8a3d); border-radius: 6px; }
+    .trophy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 11px; max-width: 640px; margin: 0 auto; padding-bottom: 8px; }
+    .trophy { background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 13px 12px 14px; text-align: center; position: relative; }
+    .trophy.won { background: linear-gradient(160deg, rgba(255, 210, 61, 0.16), rgba(255, 255, 255, 0.035)); border-color: rgba(255, 210, 61, 0.5); }
+    .trophy-emoji { font-size: 36px; line-height: 1; filter: grayscale(1); opacity: 0.45; }
+    .trophy.won .trophy-emoji { filter: none; opacity: 1; }
+    .trophy-name { font-weight: 800; font-size: 14px; margin-top: 7px; }
+    .trophy-game { font-size: 10.5px; color: var(--muted, #8b93a7); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 2px; }
+    .trophy-desc { font-size: 12px; color: var(--muted, #8b93a7); margin-top: 5px; line-height: 1.3; }
+    .trophy-pts { position: absolute; top: 8px; right: 10px; font-size: 11px; font-weight: 800; color: var(--accent-2, #ffd23d); }
+    .trophy.won .trophy-pts::before { content: '★ '; }
+    .trophy-prog { height: 6px; border-radius: 5px; background: rgba(0, 0, 0, 0.3); margin-top: 8px; overflow: hidden; }
+    .trophy-prog span { display: block; height: 100%; background: linear-gradient(90deg, #58e08a, #ffd23d); border-radius: 5px; }
+    .trophy .lockchip { position: absolute; top: 8px; left: 10px; font-size: 12px; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div class="home">
+    <a href="index.html" class="back-games">‹ Games</a>
+    <header class="home-head">
+      <div class="home-logo">🏆</div>
+      <h1 class="home-title">TROPHY<span>ROOM</span></h1>
+      <p class="home-sub">Every good boy deserves a shelf of trophies.</p>
+    </header>
+
+    <div class="trophy-stats">
+      <div class="tstat"><div class="tstat-num" id="tPoints">0</div><div class="tstat-lbl">🏆 Points</div></div>
+      <div class="tstat"><div class="tstat-num" id="tCount">0/0</div><div class="tstat-lbl">Trophies</div></div>
+      <div class="tstat"><div class="tstat-num" id="tCoins">0</div><div class="tstat-lbl">🪙 Collected</div></div>
+    </div>
+
+    <div id="unlockBanner" class="unlock-banner"></div>
+    <div id="trophyGrid" class="trophy-grid"></div>
+    <p class="home-foot">Play the games to fill your shelf 🐾</p>
+  </div>
+
+  <script>
+    (function () {
+      var read = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+      var rInt = function (k) { var v = parseInt(read(k) || '0', 10); return isNaN(v) ? 0 : v; };
+      var rFloat = function (k) { var v = parseFloat(read(k) || '0'); return isNaN(v) ? 0 : v; };
+      var rJSON = function (k) { try { var r = read(k); return r ? JSON.parse(r) : null; } catch (e) { return null; } };
+      function farmBest() {
+        var sheep = 0, money = 0, era = 1, keys = ['ewe_beauty_v1', 'ewe_beauty_v1_0', 'ewe_beauty_v1_1', 'ewe_beauty_v1_2'];
+        for (var i = 0; i < keys.length; i++) { var d = rJSON(keys[i]); if (d) { sheep = Math.max(sheep, (d.sheep || []).length); money = Math.max(money, Math.floor(d.money || 0)); era = Math.max(era, d.farmLevel || 1); } }
+        return { sheep: sheep, money: money, era: era };
+      }
+      var tractor = rJSON('woofa_tractor_v2') || {}, fetch = rJSON('wilford_fetch_v1') || {}, farm = farmBest();
+      var S = {
+        tractorLevel: tractor.bestLevel || 1, tractorEndless: tractor.bestEndless || 0, tractorCoins: tractor.coins || 0,
+        fetchBest: fetch.best || 0, fetchLevel: fetch.maxLevel || 1, fetchCoins: fetch.coins || 0,
+        snake: rInt('woofa_snake_best'), fishing: rInt('woofa_fishing_best'), trials: rInt('woofa_trials_best'),
+        sheepChase: rInt('sheep_chase_best'), shear: rFloat('woofa_shear_best'),
+        farmSheep: farm.sheep, farmMoney: farm.money, farmEra: farm.era
+      };
+      // frac: progress 0..1 toward the goal (for locked hints); shearTime lower = better
+      var f = function (cur, target) { return Math.max(0, Math.min(1, cur / target)); };
+      var shearFrac = function (t) { return S.shear > 0 ? Math.max(0, Math.min(1, t / S.shear)) : 0; };
+      var T = [
+        { g: 'Tractor Parkour', e: '🚜', n: 'First Furrow', d: 'Reach level 3', p: 10, w: S.tractorLevel >= 3, fr: f(S.tractorLevel, 3) },
+        { g: 'Tractor Parkour', e: '🏁', n: 'Hill King', d: 'Reach level 8', p: 20, w: S.tractorLevel >= 8, fr: f(S.tractorLevel, 8) },
+        { g: 'Tractor Parkour', e: '♾️', n: 'Never Ending', d: 'Go 2000m in Endless', p: 20, w: S.tractorEndless >= 2000, fr: f(S.tractorEndless, 2000) },
+        { g: 'Woofa Snake', e: '🐍', n: 'Slitherer', d: 'Grow to size 30', p: 10, w: S.snake >= 30, fr: f(S.snake, 30) },
+        { g: 'Woofa Snake', e: '🐲', n: 'Big Woofa', d: 'Grow to size 80', p: 20, w: S.snake >= 80, fr: f(S.snake, 80) },
+        { g: 'Woofa Fishing', e: '🎣', n: 'Angler', d: 'Score 25 in a run', p: 10, w: S.fishing >= 25, fr: f(S.fishing, 25) },
+        { g: 'Woofa Fishing', e: '🐟', n: 'Reel Deal', d: 'Score 60 in a run', p: 20, w: S.fishing >= 60, fr: f(S.fishing, 60) },
+        { g: 'Woofa Fetch', e: '🥏', n: 'Good Boy', d: 'Score 15 in Fetch', p: 10, w: S.fetchBest >= 15, fr: f(S.fetchBest, 15) },
+        { g: 'Woofa Fetch', e: '🐕', n: 'Frisbee Pro', d: 'Reach Fetch level 4', p: 20, w: S.fetchLevel >= 4, fr: f(S.fetchLevel, 4) },
+        { g: 'Sheepdog Trials', e: '🐑', n: 'Good Dog', d: 'Clear trial 3', p: 15, w: S.trials >= 4, fr: f(S.trials, 4) },
+        { g: 'Sheepdog Trials', e: '🏅', n: 'Top Dog', d: 'Clear trial 6', p: 25, w: S.trials >= 7, fr: f(S.trials, 7) },
+        { g: 'Sheep Chase', e: '🏃', n: 'Round-Up', d: 'Reach round 5', p: 10, w: S.sheepChase >= 5, fr: f(S.sheepChase, 5) },
+        { g: 'Woofa Shearing', e: '✂️', n: 'Quick Hands', d: 'Shear under 12s', p: 15, w: S.shear > 0 && S.shear <= 12, fr: shearFrac(12) },
+        { g: 'Woofa Shearing', e: '⚡', n: 'Gun Shearer', d: 'Shear under 8s', p: 25, w: S.shear > 0 && S.shear <= 8, fr: shearFrac(8) },
+        { g: 'Ewe Beauty Farm', e: '🐑', n: 'Grazier', d: 'Own 8 sheep at once', p: 15, w: S.farmSheep >= 8, fr: f(S.farmSheep, 8) },
+        { g: 'Ewe Beauty Farm', e: '💰', n: 'Wool Baron', d: 'Bank $500', p: 20, w: S.farmMoney >= 500, fr: f(S.farmMoney, 500) }
+      ];
+      var baseWon = 0; for (var i = 0; i < T.length; i++) if (T[i].w) baseWon++;
+      T.push({ g: 'Collection', e: '🌈', n: 'All-Rounder', d: 'Earn 6 trophies', p: 30, w: baseWon >= 6, fr: f(baseWon, 6) });
+
+      var pts = 0, earned = 0;
+      for (var j = 0; j < T.length; j++) { if (T[j].w) { pts += T[j].p; earned++; } }
+      var totalCoins = (S.tractorCoins || 0) + (S.fetchCoins || 0) + (S.farmMoney || 0);
+
+      document.getElementById('tPoints').textContent = pts;
+      document.getElementById('tCount').textContent = earned + '/' + T.length;
+      document.getElementById('tCoins').textContent = totalCoins.toLocaleString();
+
+      // Champion tractor unlocks at 90 points — writes into the tractor save (picked up next time you drive)
+      var UNLOCK = 90, banner = document.getElementById('unlockBanner');
+      if (pts >= UNLOCK) {
+        try { var t = JSON.parse(read('woofa_tractor_v2') || '{}'); if (!t.owned) t.owned = {}; if (!t.owned.champion) { t.owned.champion = true; localStorage.setItem('woofa_tractor_v2', JSON.stringify(t)); } } catch (e) {}
+        banner.innerHTML = '🏆 <b>Champion tractor unlocked!</b> Head to the Tractor Parkour Garage to drive it.';
+      } else {
+        banner.innerHTML = 'Earn <b>' + (UNLOCK - pts) + ' more points</b> to unlock the 🏆 <b>Champion</b> tractor in Tractor Parkour!' +
+          '<div class="ub-bar"><span class="ub-fill" style="width:' + Math.round(pts / UNLOCK * 100) + '%"></span></div>';
+      }
+
+      var grid = document.getElementById('trophyGrid');
+      for (var k = 0; k < T.length; k++) {
+        var tr = T[k], el = document.createElement('div');
+        el.className = 'trophy' + (tr.w ? ' won' : '');
+        var inner = '<div class="trophy-pts">' + tr.p + '</div>' +
+          (tr.w ? '' : '<div class="lockchip">🔒</div>') +
+          '<div class="trophy-emoji">' + tr.e + '</div>' +
+          '<div class="trophy-name">' + tr.n + '</div>' +
+          '<div class="trophy-game">' + tr.g + '</div>' +
+          '<div class="trophy-desc">' + tr.d + '</div>';
+        if (!tr.w && tr.fr > 0.01) inner += '<div class="trophy-prog"><span style="width:' + Math.round(tr.fr * 100) + '%"></span></div>';
+        el.innerHTML = inner;
+        grid.appendChild(el);
+      }
+    })();
+  </script>
+</body>
+</html>

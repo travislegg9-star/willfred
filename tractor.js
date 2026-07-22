@@ -47,6 +47,7 @@
     red: { name: 'Red Rocket', emoji: '🚜', body: '#c0392b', cab: '#a5342a', cost: 900, spd: 1.14, acc: 1.1 },
     monster: { name: 'Monster', emoji: '🚜', body: '#5b3a86', cab: '#4a2f6e', cost: 2500, spd: 1.28, acc: 1.25, big: 1.25, smash: true },
     gold: { name: 'Golden Hauler', emoji: '🚜', body: '#d4a017', cab: '#b8860b', cost: 6000, spd: 1.42, acc: 1.3, big: 1.15, smash: true },
+    champion: { name: 'Champion', emoji: '🚜', body: '#e8c020', cab: '#c89a10', cost: 0, spd: 1.5, acc: 1.35, big: 1.2, smash: true, trophy: true },
   };
   const upCost = (k) => UP[k].base * (save.up[k] + 1);
   function stats() {
@@ -436,7 +437,7 @@
     head('⚙️ Upgrades');
     for (const k of Object.keys(UP)) { const u = UP[k], lv = save.up[k]; const bars = '▮'.repeat(lv) + '▯'.repeat(u.max - lv); if (lv >= u.max) row(u.emoji, u.name + '  ' + bars, u.desc, '', false, null, 'MAX'); else { const c = upCost(k); row(u.emoji, u.name + '  ' + bars, u.desc, '🪙 ' + c, save.coins >= c, () => { if (save.coins >= c) { save.coins -= c; save.up[k]++; sfx.coin && sfx.coin(); persist(); } }); } }
     head('🚜 Tractors');
-    for (const k of Object.keys(MODELS)) { const m = MODELS[k]; const note = (m.smash ? 'Smashes logs! ' : '') + (m.spd > 1 ? 'Faster top speed & pull.' : 'The trusty starter.'); if (save.owned[k]) row(m.emoji, m.name + (m.spd > 1 ? ' ·  faster' : ''), k === save.model ? 'Currently driving.' : note, k === save.model ? '' : 'Select', k !== save.model, () => { save.model = k; persist(); }, k === save.model ? 'DRIVING' : null); else row(m.emoji, m.name, note, '🪙 ' + m.cost, save.coins >= m.cost, () => { if (save.coins >= m.cost) { save.coins -= m.cost; save.owned[k] = true; save.model = k; persist(); } }); }
+    for (const k of Object.keys(MODELS)) { const m = MODELS[k]; const note = (m.smash ? 'Smashes logs! ' : '') + (m.spd > 1 ? 'Faster top speed & pull.' : 'The trusty starter.'); if (save.owned[k]) row(m.emoji, m.name + (m.spd > 1 ? ' ·  faster' : ''), k === save.model ? 'Currently driving.' : note, k === save.model ? '' : 'Select', k !== save.model, () => { save.model = k; persist(); }, k === save.model ? 'DRIVING' : null); else if (m.trophy) row(m.emoji, m.name, 'Win it in the 🏆 Trophy Room.', '', false, null, '🔒'); else row(m.emoji, m.name, note, '🪙 ' + m.cost, save.coins >= m.cost, () => { if (save.coins >= m.cost) { save.coins -= m.cost; save.owned[k] = true; save.model = k; persist(); } }); }
   }
   document.getElementById('trPlay').onclick = () => startLevel(save.bestLevel || 1);
   const endlessBtn = document.getElementById('trEndless'); if (endlessBtn) endlessBtn.onclick = () => startEndless();
