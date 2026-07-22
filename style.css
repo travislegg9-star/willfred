@@ -212,7 +212,8 @@ h2 { margin: 0 0 16px; font-size: 26px; font-weight: 900; }
 
 /* ================= Home menu (Woofa's Games) ================= */
 .home {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;               /* fill the screen so overflow scrolls INSIDE .home */
   width: 100%;
   max-width: 520px;
   margin: 0 auto;
@@ -220,7 +221,11 @@ h2 { margin: 0 0 16px; font-size: 26px; font-weight: 900; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;   /* momentum scroll on iOS */
+  touch-action: pan-y;                 /* re-enable vertical touch scroll (body sets touch-action:none) */
+  overscroll-behavior: contain;
 }
+.game-grid { flex-shrink: 0; }         /* let the list overflow & scroll instead of squashing cards */
 .home-head { text-align: center; margin-bottom: 22px; }
 .home-logo { font-size: 56px; line-height: 1; }
 .home-title {
