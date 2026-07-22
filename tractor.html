@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Woofa Tractor Parkour</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a href="index.html" id="backToGames" class="back-games">‹ Games</a>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="trHud" class="hud">
+    <div class="hud-pill">🚩 <span id="trDist">0</span>m</div>
+    <div class="hud-pill">🌾 <span id="trBales">0</span></div>
+    <div class="hud-pill">🏆 <span id="trBest">0</span>m</div>
+    <div class="hud-pill fuel-pill">⛽ <span class="fuel-track"><span id="trFuel" class="fuel-fill"></span></span></div>
+  </div>
+
+  <!-- pedals -->
+  <button id="brakePedal" class="pedal pedal-left">◀ REVERSE</button>
+  <button id="gasPedal" class="pedal pedal-right">GAS ▶</button>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- start -->
+  <div id="startScreen" class="overlay">
+    <div class="panel">
+      <div class="logo"><span class="logo-throw" style="animation:none">🚜</span><h1>TRACTOR<span>PARKOUR</span></h1></div>
+      <p class="tagline">Drive Woofa's John Deere over the hills. Collect hay bales, don't run dry, and don't flip!</p>
+      <button class="btn btn-primary" id="trPlay">DRIVE</button>
+      <p class="credit">GAS to go, REVERSE to back up &amp; balance in the air 🐾</p>
+    </div>
+  </div>
+
+  <!-- over -->
+  <div id="overScreen" class="overlay hidden">
+    <div class="panel">
+      <h2 id="overTitle">Crashed! 🚜</h2>
+      <p class="tagline">You drove <b id="overDist" style="color:var(--good)">0</b>m<br>🌾 Bales: <b id="overBales" style="color:var(--accent-2)">0</b> · Best: <b id="overBest" style="color:var(--accent-2)">0</b>m</p>
+      <button class="btn btn-primary" id="trAgain">Drive again</button>
+      <a class="btn btn-ghost" href="index.html" style="text-align:center;text-decoration:none;display:block">‹ Back to Games</a>
+    </div>
+  </div>
+
+  <script src="tractor.js"></script>
+</body>
+</html>
