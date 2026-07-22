@@ -28,6 +28,20 @@
   const BEST_KEY = 'woofa_fishing_best';
   let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
 
+  // ---------- sound ----------
+  let actx = null, master = null;
+  function ensureAudio() { try { if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); master = actx.createGain(); master.gain.value = 0.5; master.connect(actx.destination); } if (actx.state === 'suspended' && actx.resume) actx.resume(); } catch (e) { actx = null; } }
+  function beep(f, dur, type, vol, slideTo) { if (!actx) return; try { const o = actx.createOscillator(), g = actx.createGain(); o.type = type || 'sine'; o.frequency.value = f; if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, actx.currentTime + dur); g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur + 0.02); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + dur + 0.04); } catch (e) {} }
+  const sfx = {
+    splash() { beep(340, 0.12, 'sine', 0.04, 160); }, reel() { beep(900, 0.03, 'square', 0.03); },
+    hook() { beep(500, 0.08, 'triangle', 0.05, 760); },
+    catch() { beep(660, 0.09, 'triangle', 0.05); setTimeout(() => beep(990, 0.12, 'triangle', 0.05), 70); },
+    gold() { [660, 880, 1100, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.13, 'triangle', 0.06), i * 90)); },
+    boot() { beep(180, 0.18, 'sawtooth', 0.05, 90); }, end() { beep(400, 0.2, 'triangle', 0.05, 300); },
+  };
+  let combo = 0;
+  function comboMult() { return Math.min(1 + Math.floor(combo / 3), 5); }
+
   const KINDS = [
     { key: 'small', emoji: '🐟', w: 0.28, value: 2, size: 20, weight: 0.9, chance: 0.42 },
     { key: 'med', emoji: '🐠', w: 0.4, value: 5, size: 26, weight: 1.3, chance: 0.28 },
@@ -38,14 +52,15 @@
   ];
   function pickKind() { let r = Math.random(); for (const k of KINDS) { if (r < k.chance) return k; r -= k.chance; } return KINDS[0]; }
 
-  let fish = [], bubbles = [], pops = [];
+  let fish = [], bubbles = [], pops = [], drops = [];
   const hook = { x: 0, y: 0, held: false, hooked: null };
   let state = 'menu', score = 0, caught = 0, timeLeft = 60, tick = 0, running = false;
 
   function reset() {
-    fish = []; bubbles = []; pops = [];
+    fish = []; bubbles = []; pops = []; drops = [];
     hook.x = W / 2; hook.y = surfaceY() + 8; hook.held = false; hook.hooked = null;
-    state = 'cast'; score = 0; caught = 0; timeLeft = 60; tick = 0; running = true;
+    state = 'cast'; score = 0; caught = 0; timeLeft = 60; tick = 0; running = true; combo = 0;
+    ensureAudio();
     for (let i = 0; i < 7; i++) spawnFish();
     for (let i = 0; i < 26; i++) bubbles.push({ x: rand(0, W), y: rand(surfaceY(), H), r: rand(1.5, 4), sp: rand(0.2, 0.7) });
     hideOverlays(); updateHud();
@@ -67,7 +82,7 @@
   function down(e) {
     if (!running) return; e.preventDefault();
     const p = pt(e);
-    if (state === 'cast') { hook.held = true; hook.x = clamp(p.x, 20, W - 20); }
+    if (state === 'cast') { if (!hook.held) { splashAt(hook.x, surfaceY()); sfx.splash(); } hook.held = true; hook.x = clamp(p.x, 20, W - 20); }
     else if (state === 'reel') { hook.y -= 26 + (hook.hooked ? 0 : 0); reelTap(); }   // tap = pull up
   }
   function move(e) { if (!running) return; e.preventDefault(); const p = pt(e); if (state === 'cast' && hook.held) hook.x = clamp(p.x, 20, W - 20); }
@@ -79,7 +94,7 @@
   window.addEventListener('mousemove', move);
   window.addEventListener('mouseup', up);
   let reelFlash = 0;
-  function reelTap() { reelFlash = 6; }
+  function reelTap() { reelFlash = 6; sfx.reel(); }
 
   // ---------- update ----------
   function update(dt) {
@@ -105,7 +120,7 @@
       if (hook.held) hook.y += 3.2 * dt; else hook.y -= 4.2 * dt;
       hook.y = clamp(hook.y, surfaceY() + 8, H - 24);
       // grab a fish
-      for (const f of fish) { if (dist(hook.x, hook.y, f.x, f.y) < f.size * 0.7 + 8) { hook.hooked = f; state = 'reel'; hook.held = false; pop(f.x, f.y, '🎣!', '#ffd23d'); break; } }
+      for (const f of fish) { if (dist(hook.x, hook.y, f.x, f.y) < f.size * 0.7 + 8) { hook.hooked = f; state = 'reel'; hook.held = false; pop(f.x, f.y, '🎣!', '#ffd23d'); sfx.hook(); break; } }
     } else if (state === 'reel') {
       const f = hook.hooked;
       // the fish weight sinks the hook; tapping pulls it up (handled in down())
@@ -119,23 +134,31 @@
     }
 
     for (const b of bubbles) { b.y -= b.sp * dt; if (b.y < surfaceY()) { b.y = H; b.x = rand(0, W); } }
+    for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.vy += 0.35 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.life -= 0.03 * dt; if (d.life <= 0 || d.y > surfaceY() + 10) drops.splice(i, 1); }
     for (let i = pops.length - 1; i >= 0; i--) { pops[i].y -= 0.6 * dt; pops[i].life -= 0.02 * dt; if (pops[i].life <= 0) pops.splice(i, 1); }
     if (reelFlash > 0) reelFlash -= dt;
     if ((tick | 0) % 5 === 0) updateHud();
   }
   function landFish(f) {
-    const val = f.k.value;
-    score += val; if (!f.k.junk) caught++;
-    if (f.k.junk) { pop(hook.x, surfaceY(), 'An old boot! 🥾', '#c98a6a'); toast('🥾 Just a boot…'); }
-    else if (f.k.gold) { pop(hook.x, surfaceY(), 'GOLDEN FISH! +' + val + ' ✨', '#ffd23d'); toast('✨ Golden fish! +' + val); }
-    else { pop(hook.x, surfaceY(), f.k.emoji + ' +' + val, '#8fe08a'); }
+    splashAt(hook.x, surfaceY());
+    if (f.k.junk) {
+      combo = 0; score += f.k.value; pop(hook.x, surfaceY() - 6, 'An old boot! 🥾', '#c98a6a'); toast('🥾 Just a boot… (combo lost)'); sfx.boot();
+    } else {
+      combo++; caught++;
+      const mult = comboMult(), val = f.k.value * mult;
+      score += val;
+      const mtxt = mult > 1 ? '  x' + mult + '🔥' : '';
+      if (f.k.gold) { pop(hook.x, surfaceY() - 6, 'GOLDEN! +' + val + mtxt + ' ✨', '#ffd23d'); toast('✨ Golden fish! +' + val); sfx.gold(); }
+      else { pop(hook.x, surfaceY() - 6, f.k.emoji + ' +' + val + mtxt, '#8fe08a'); sfx.catch(); }
+    }
     hook.hooked = null; hook.y = surfaceY() + 8; state = 'cast';
     updateHud();
   }
+  function splashAt(x, y) { for (let i = 0; i < 9; i++) drops.push({ x, y, vx: rand(-2.5, 2.5), vy: rand(-4, -1.5), life: 1 }); }
   function pop(x, y, txt, col) { pops.push({ x, y, txt, col, life: 1 }); }
 
   function endGame() {
-    running = false;
+    running = false; sfx.end();
     if (score > best) { best = score; localStorage.setItem(BEST_KEY, String(best)); }
     document.getElementById('overScore').textContent = score;
     document.getElementById('overCount').textContent = caught;
@@ -159,6 +182,7 @@
     for (let x = 0; x <= W; x += 10) { const y = sy + Math.sin(x * 0.05 + tick / 12) * 2; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
     // bubbles
     ctx.fillStyle = 'rgba(255,255,255,0.18)'; for (const b of bubbles) { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); }
+    for (const d of drops) { ctx.globalAlpha = clamp(d.life, 0, 1); ctx.fillStyle = '#cdeeff'; ctx.beginPath(); ctx.arc(d.x, d.y, 2.5, 0, 7); ctx.fill(); } ctx.globalAlpha = 1;
     // fish
     for (const f of fish) drawFish(f);
     if (hook.hooked) drawFish(hook.hooked);
@@ -173,6 +197,8 @@
     ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '800 15px system-ui';
     if (state === 'cast' && running) ctx.fillText(hook.held ? 'slide onto a fish 🐟' : 'hold to drop the hook', W / 2, H - 22);
     if (state === 'reel' && running) { ctx.fillStyle = '#ffd23d'; ctx.font = '900 20px system-ui'; ctx.fillText('TAP FAST TO REEL! 🎣', W / 2, H - 22); }
+    // combo streak
+    if (running && comboMult() > 1) { ctx.fillStyle = '#ff8a3d'; ctx.font = '900 22px system-ui'; ctx.textAlign = 'center'; ctx.fillText('🔥 x' + comboMult() + ' STREAK', W / 2, surfaceY() - 12 + Math.sin(tick / 6) * 2); }
     // pops
     for (const p of pops) { ctx.globalAlpha = clamp(p.life, 0, 1); ctx.fillStyle = p.col; ctx.font = '900 18px system-ui'; ctx.textAlign = 'center'; ctx.fillText(p.txt, p.x, p.y); } ctx.globalAlpha = 1;
   }
