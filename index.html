@@ -28,11 +28,20 @@
     </a>
 
     <div class="game-grid">
+      <a class="game-card gc-farm" href="wrestling.html" style="border-color: rgba(232,168,56,0.45)">
+        <div class="gc-emoji">🐏</div>
+        <div class="gc-body">
+          <div class="gc-name">Sheep Wrestling <span class="gc-tag-new">NEW</span></div>
+          <div class="gc-desc">Raise lambs into God Rams. Feed, train, gear up — then watch hell-hectic head-to-head smashes. Friend WOOF codes to verse mates.</div>
+        </div>
+        <div class="gc-go">Play ›</div>
+      </a>
+
       <a class="game-card gc-farm" href="farm.html">
         <div class="gc-emoji">🐑</div>
         <div class="gc-body">
           <div class="gc-name">Ewe Beauty Farming Co <span class="gc-tag-new">NEW</span></div>
-          <div class="gc-desc">Raise your flock with Woofa — feed, water, shear &amp; sell wool, fend off foxes, breed lambs and build a proper farm.</div>
+          <div class="gc-desc">Raise your flock with Woofa — feed, water, shear & sell wool, fend off foxes, breed lambs and build a proper farm.</div>
         </div>
         <div class="gc-go">Play ›</div>
       </a>
@@ -41,7 +50,7 @@
         <div class="gc-emoji">🚜</div>
         <div class="gc-body">
           <div class="gc-name">Tractor Parkour <span class="gc-tag-new">NEW</span></div>
-          <div class="gc-desc">Launch off ramps, clear the gaps, land flips &amp; smash logs across levels &amp; endless runs. Earn 🪙 to upgrade your tractor in the Garage.</div>
+          <div class="gc-desc">Launch off ramps, clear the gaps, land flips & smash logs across levels & endless runs. Earn 🪙 to upgrade your tractor in the Garage.</div>
         </div>
         <div class="gc-go">Play ›</div>
       </a>
@@ -103,5 +112,12 @@
 
     <p class="home-foot">More modes on the way 🐾</p>
   </div>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+</script>
 </body>
 </html>

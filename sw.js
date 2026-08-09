@@ -1,5 +1,5 @@
 /* Woofa's Games — offline service worker. Cache-first for the app shell. */
-const CACHE = 'woofa-games-v47';
+const CACHE = 'woofa-games-v49';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
   './tractor.html',
   './trials.html',
   './fishing.html',
+  './wrestling.html',
   './style.css',
   './game.js',
   './tractor.js',
@@ -21,9 +22,11 @@ const ASSETS = [
   './sheep.js',
   './shear.js',
   './farm.js',
+  './wrestling.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-maskable.svg',
+  './assets/woofa_frame.jpg',
 ];
 
 self.addEventListener('install', (e) => {
