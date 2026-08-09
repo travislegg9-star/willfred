@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="wrestling-page">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=53" />
+  <link rel="stylesheet" href="style.css?v=54" />
   <style>
     :root {
       --w-bg: #0b1220;
@@ -25,9 +25,37 @@
       --w-good: #58e08a;
       --w-ram: #c45c2a;
     }
-    html, body { background: var(--w-bg); color: var(--w-fg); margin: 0; min-height: 100%; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    #wApp { max-width: 480px; margin: 0 auto; min-height: 100dvh; padding-bottom: 72px; position: relative; }
+    /* Unlock scroll — shared style.css sets overflow:hidden / touch-action:none for canvas games */
+    html.wrestling-page,
+    html.wrestling-page body,
+    body.wrestling-page {
+      background: var(--w-bg) !important;
+      color: var(--w-fg) !important;
+      margin: 0 !important;
+      height: auto !important;
+      min-height: 100% !important;
+      max-height: none !important;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+      overscroll-behavior-y: auto !important;
+      touch-action: pan-y !important;
+      position: static !important;
+      -webkit-overflow-scrolling: touch !important;
+      user-select: auto !important;
+      -webkit-user-select: auto !important;
+    }
+    body.wrestling-page {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    #wApp {
+      max-width: 480px;
+      margin: 0 auto;
+      min-height: 100dvh;
+      height: auto;
+      overflow: visible;
+      padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+      position: relative;
+    }
     #wApp.fight-mode { padding-bottom: 0; }
     .w-top {
       position: sticky; top: 0; z-index: 40;
@@ -148,7 +176,7 @@
     .hidden { display: none !important; }
   </style>
 </head>
-<body>
+<body class="wrestling-page">
   <div id="wApp">
     <header class="w-top">
       <a href="index.html">‹ Games</a>
@@ -202,7 +230,7 @@
     </div>
   </div>
 
-    <script src="wrestling.js?v=53"></script>
+    <script src="wrestling.js?v=54"></script>
   <script>
     (function () {
       // Force SW update + claim fresh assets
@@ -211,7 +239,7 @@
           regs.forEach(function (r) { r.update(); });
         });
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('sw.js?v=53').catch(function () {});
+          navigator.serviceWorker.register('sw.js?v=54').catch(function () {});
         });
       }
       // If game script failed, main stays empty — recover hard
