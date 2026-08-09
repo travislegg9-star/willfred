@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a1628" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Stick BMX — Woofa's Games</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <style>
+    :root {
+      --bg: #0a1628;
+      --panel: rgba(10, 22, 40, 0.88);
+      --line: rgba(255,255,255,0.12);
+      --ink: #e8f0ff;
+      --muted: #8fa3c4;
+      --accent: #ff6b2c;
+      --good: #3dff9a;
+      --sky: #ffd23d;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: var(--bg); color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      touch-action: none; user-select: none; -webkit-user-select: none;
+    }
+    #game {
+      display: block; width: 100vw; height: 100vh;
+      width: 100dvw; height: 100dvh;
+      touch-action: none; background: #0a1628;
+    }
+    .hud {
+      position: fixed; inset: 0; pointer-events: none; z-index: 10;
+    }
+    .top {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 8px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    }
+    .back {
+      pointer-events: auto;
+      text-decoration: none; color: var(--ink);
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px 12px; font-weight: 800; font-size: 13px;
+    }
+    .score-box {
+      text-align: right;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 14px; padding: 8px 12px; min-width: 120px;
+    }
+    .score-box .lab { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+    .score-box .val { font-size: 22px; font-weight: 900; color: var(--sky); line-height: 1.1; }
+    .score-box .sub { font-size: 11px; color: var(--muted); font-weight: 700; }
+    .trick-feed {
+      position: absolute; top: 28%; left: 0; right: 0;
+      text-align: center; pointer-events: none;
+    }
+    .trick-feed .name {
+      font-size: clamp(22px, 5vw, 34px); font-weight: 900;
+      text-shadow: 0 4px 20px rgba(0,0,0,.55);
+      letter-spacing: 0.5px;
+      opacity: 0; transform: translateY(10px) scale(.9);
+      transition: opacity .12s, transform .12s;
+    }
+    .trick-feed .name.on { opacity: 1; transform: translateY(0) scale(1); color: #fff; }
+    .trick-feed .name.big { color: var(--accent); font-size: clamp(28px, 6vw, 42px); }
+    .trick-feed .mult {
+      margin-top: 4px; font-weight: 900; color: var(--good);
+      font-size: 16px; opacity: 0;
+    }
+    .trick-feed .mult.on { opacity: 1; }
+    .speed {
+      position: absolute; top: calc(70px + env(safe-area-inset-top, 0px)); right: 12px;
+      width: 8px; height: 90px; border-radius: 8px;
+      background: rgba(0,0,0,.35); border: 1px solid var(--line); overflow: hidden;
+    }
+    .speed > i {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(0deg, #3dff9a, #ffd23d, #ff6b2c);
+      height: 0%; transition: height .05s linear;
+    }
+
+    .touch {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+      display: flex; justify-content: space-between; align-items: flex-end; gap: 10px;
+      pointer-events: none;
+    }
+    .pad {
+      display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap; max-width: 48%;
+    }
+    .pad.right { justify-content: flex-end; }
+    .btn {
+      width: 64px; height: 64px; border-radius: 18px;
+      border: 1px solid var(--line); background: var(--panel);
+      color: var(--ink); font-weight: 900; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      touch-action: none;
+    }
+    .btn:active, .btn.held { transform: scale(.94); background: rgba(255,107,44,.28); border-color: rgba(255,107,44,.55); }
+    .btn.wide { width: 78px; }
+    .btn.tall { height: 78px; width: 78px; font-size: 18px; }
+    .btn.accent { background: rgba(255,107,44,.22); border-color: rgba(255,107,44,.45); }
+    .btn.good { background: rgba(61,255,154,.14); border-color: rgba(61,255,154,.4); }
+    .hint {
+      position: absolute; bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+      left: 0; right: 0; text-align: center;
+      color: var(--muted); font-size: 12px; font-weight: 700;
+      pointer-events: none;
+    }
+    @media (min-width: 900px) {
+      .touch { display: none; }
+      .hint { bottom: 24px; }
+    }
+
+    .overlay {
+      position: fixed; inset: 0; z-index: 30;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; background: radial-gradient(120% 90% at 50% 0%, rgba(40,70,120,.45), rgba(6,12,22,.92));
+      backdrop-filter: blur(4px);
+    }
+    .overlay.hidden { display: none; }
+    .panel {
+      width: min(420px, 100%);
+      background: linear-gradient(180deg, #14233a, #0c1524);
+      border: 1px solid var(--line); border-radius: 24px;
+      padding: 26px 22px; text-align: center;
+      box-shadow: 0 30px 80px rgba(0,0,0,.5);
+    }
+    .panel h1 {
+      margin: 6px 0 0; font-size: 32px; font-weight: 900; letter-spacing: -0.5px; line-height: 1;
+    }
+    .panel h1 span { color: var(--accent); }
+    .panel .emoji { font-size: 48px; line-height: 1; }
+    .panel p { color: var(--muted); font-size: 14px; line-height: 1.45; margin: 12px 0 18px; }
+    .panel .cta {
+      display: block; width: 100%; border: 0; border-radius: 14px;
+      padding: 14px; font-size: 16px; font-weight: 900; cursor: pointer;
+      background: linear-gradient(180deg, #ff8a3d, #e5561a); color: #1a0c04;
+      box-shadow: 0 10px 28px rgba(255,107,44,.35); margin-top: 8px;
+    }
+    .panel .cta.ghost {
+      background: transparent; color: var(--muted); border: 1px solid var(--line);
+      box-shadow: none;
+    }
+    .how { text-align: left; font-size: 13px; color: var(--ink); margin: 0 0 8px; padding-left: 18px; }
+    .how li { margin: 6px 0; }
+    .how b { color: var(--sky); }
+    .best { color: var(--good); font-weight: 800; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud">
+    <div class="top">
+      <a class="back" href="index.html">‹ Games</a>
+      <div class="score-box">
+        <div class="lab">Run score</div>
+        <div class="val" id="hudScore">0</div>
+        <div class="sub" id="hudCombo">combo ×1</div>
+      </div>
+    </div>
+    <div class="speed"><i id="hudSpeed"></i></div>
+    <div class="trick-feed">
+      <div class="name" id="hudTrick"></div>
+      <div class="mult" id="hudMult"></div>
+    </div>
+    <div class="hint" id="hudHint">Hold → to pump · ↑↓ flip in air · SPACE jump · T tricks</div>
+
+    <div class="touch">
+      <div class="pad">
+        <button type="button" class="btn" data-k="brake">◀︎</button>
+        <button type="button" class="btn accent tall" data-k="gas">▶︎ GAS</button>
+      </div>
+      <div class="pad right">
+        <button type="button" class="btn" data-k="flipUp">FLIP<br>↑</button>
+        <button type="button" class="btn" data-k="flipDown">FLIP<br>↓</button>
+        <button type="button" class="btn good" data-k="trick">TRICK</button>
+        <button type="button" class="btn accent tall" data-k="jump">JUMP</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="startOverlay">
+    <div class="panel">
+      <div class="emoji">🚴</div>
+      <h1>STICK <span>BMX</span></h1>
+      <p>Line-rider vibes, pure freestyle chaos. Hit the kickers, whip massive flips, throw Superman & barspins, stick the landing.</p>
+      <ul class="how">
+        <li><b>Hold → / GAS</b> — pump speed on the ground</li>
+        <li><b>↑ ↓</b> — rotate in the air (backflip / frontflip)</li>
+        <li><b>JUMP</b> — pop off lips & flats</li>
+        <li><b>TRICK</b> — Superman · no-hander · barspin · one-footer</li>
+        <li>Clean landings keep the <b>combo multiplier</b> climbing</li>
+      </ul>
+      <div class="best" id="bestLabel">Best: 0</div>
+      <button type="button" class="cta" id="btnPlay">DROP IN</button>
+      <button type="button" class="cta ghost" id="btnHow">Got it — let's shred</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="crashOverlay">
+    <div class="panel">
+      <div class="emoji">💥</div>
+      <h1>YEOWCH</h1>
+      <p id="crashMsg">Rough landing. The stick man feels that one.</p>
+      <div class="score-box" style="display:inline-block;text-align:center;margin:4px auto 12px">
+        <div class="lab">Run score</div>
+        <div class="val" id="crashScore">0</div>
+      </div>
+      <button type="button" class="cta" id="btnRetry">RIDE AGAIN</button>
+      <a class="cta ghost" href="index.html" style="text-decoration:none;display:block">‹ Games</a>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="finishOverlay">
+    <div class="panel">
+      <div class="emoji">🏆</div>
+      <h1>PARK <span>CLEARED</span></h1>
+      <p>You rode the whole line. Filthy.</p>
+      <div class="score-box" style="display:inline-block;text-align:center;margin:4px auto 12px">
+        <div class="lab">Final score</div>
+        <div class="val" id="finishScore">0</div>
+      </div>
+      <div class="best" id="finishBest"></div>
+      <button type="button" class="cta" id="btnAgain">ONE MORE RUN</button>
+      <a class="cta ghost" href="index.html" style="text-decoration:none;display:block">‹ Games</a>
+    </div>
+  </div>
+
+  <script src="bmx.js?v=1"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js?v=57').catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>

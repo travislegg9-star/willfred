@@ -1,5 +1,5 @@
 /* Woofa's Games — network-first for HTML/JS so updates aren't stuck offline. */
-const CACHE = 'woofa-games-v56';
+const CACHE = 'woofa-games-v57';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
   './trials.html',
   './fishing.html',
   './wrestling.html',
+  './bmx.html',
   './style.css',
   './game.js',
   './tractor.js',
@@ -23,6 +24,7 @@ const ASSETS = [
   './shear.js',
   './farm.js',
   './wrestling.js',
+  './bmx.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-maskable.svg',

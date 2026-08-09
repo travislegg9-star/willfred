@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=55" />
+  <link rel="stylesheet" href="style.css?v=57" />
 </head>
 <body class="hub">
   <div class="home">
@@ -28,6 +28,16 @@
     </a>
 
     <div class="game-grid">
+
+      <a class="game-card" href="bmx.html" style="border-color: rgba(255,107,44,0.45)">
+        <div class="gc-emoji">🚴</div>
+        <div class="gc-body">
+          <div class="gc-name">Stick BMX <span class="gc-tag-new">NEW</span></div>
+          <div class="gc-desc">Smooth freestyle park — massive kickers, flips, Superman & barspins. Stick the landing, stack the combo.</div>
+        </div>
+        <div class="gc-go">Play ›</div>
+      </a>
+
       <a class="game-card gc-farm" href="wrestling.html" style="border-color: rgba(232,168,56,0.45)">
         <div class="gc-emoji">🐏</div>
         <div class="gc-body">
@@ -116,7 +126,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.update();});});
-      navigator.serviceWorker.register('sw.js?v=55').catch(function () {});
+      navigator.serviceWorker.register('sw.js?v=57').catch(function () {});
     });
   }
 </script>
