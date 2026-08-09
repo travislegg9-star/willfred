@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=54" />
+  <link rel="stylesheet" href="style.css?v=55" />
 </head>
 <body class="hub">
   <div class="home">
@@ -116,7 +116,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.update();});});
-      navigator.serviceWorker.register('sw.js?v=54').catch(function () {});
+      navigator.serviceWorker.register('sw.js?v=55').catch(function () {});
     });
   }
 </script>

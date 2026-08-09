@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=54" />
+  <link rel="stylesheet" href="style.css?v=55" />
   <style>
     :root {
       --w-bg: #0b1220;
@@ -24,44 +24,52 @@
       --w-accent: #4bc0e0;
       --w-good: #58e08a;
       --w-ram: #c45c2a;
+      --w-nav-h: 64px;
     }
-    /* Unlock scroll — shared style.css sets overflow:hidden / touch-action:none for canvas games */
-    html.wrestling-page,
-    html.wrestling-page body,
-    body.wrestling-page {
+    /* Kill shared canvas-game lock from style.css */
+    html.wrestling-page, html.wrestling-page body, body.wrestling-page {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-height: 100% !important;
+      overflow: hidden !important;
       background: var(--w-bg) !important;
       color: var(--w-fg) !important;
-      margin: 0 !important;
-      height: auto !important;
-      min-height: 100% !important;
-      max-height: none !important;
-      overflow-x: hidden !important;
-      overflow-y: auto !important;
-      overscroll-behavior-y: auto !important;
-      touch-action: pan-y !important;
-      position: static !important;
-      -webkit-overflow-scrolling: touch !important;
-      user-select: auto !important;
-      -webkit-user-select: auto !important;
+      touch-action: manipulation !important;
+      overscroll-behavior: none !important;
+      position: fixed !important;
+      inset: 0 !important;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
     }
-    body.wrestling-page {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    }
+    /* Full-viewport app shell */
     #wApp {
-      max-width: 480px;
-      margin: 0 auto;
-      min-height: 100dvh;
-      height: auto;
-      overflow: visible;
-      padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-      position: relative;
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      overflow: hidden !important;
+      background: var(--w-bg);
+      z-index: 1;
     }
-    #wApp.fight-mode { padding-bottom: 0; }
+    #wApp.fight-mode .w-top,
+    #wApp.fight-mode #wNav { display: none !important; }
+    #wApp.fight-mode #wScroll { display: none !important; }
+
     .w-top {
-      position: sticky; top: 0; z-index: 40;
+      flex: 0 0 auto;
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 10px 12px; background: rgba(11,18,32,.92); backdrop-filter: blur(10px);
+      padding: 10px 12px;
+      padding-top: max(10px, env(safe-area-inset-top, 0px));
+      background: rgba(11,18,32,.96);
       border-bottom: 1px solid var(--w-border);
+      z-index: 5;
     }
     .w-top a { color: var(--w-muted); text-decoration: none; font-size: 12px; font-weight: 700; }
     .w-top-title { text-align: center; }
@@ -74,19 +82,42 @@
       font-size: 13px; font-weight: 800; color: var(--w-primary);
     }
     .w-pill.troph { color: var(--w-accent); }
-    .w-main { padding: 12px; }
+
+    /* THE scroll surface — this is what the finger moves */
+    #wScroll {
+      flex: 1 1 auto;
+      min-height: 0 !important;
+      overflow-x: hidden !important;
+      overflow-y: scroll !important; /* scroll not auto — forces scrollport on iOS */
+      -webkit-overflow-scrolling: touch !important;
+      touch-action: pan-y !important;
+      overscroll-behavior-y: contain;
+      padding: 12px 12px calc(var(--w-nav-h) + 20px + env(safe-area-inset-bottom, 0px));
+      max-width: 480px;
+      width: 100%;
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+    #wMain { padding: 0; min-height: min-content; }
+
     .w-nav {
-      position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
-      background: rgba(18,26,43,.96); border-top: 1px solid var(--w-border);
-      padding-bottom: env(safe-area-inset-bottom);
+      flex: 0 0 auto;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      z-index: 40;
+      background: rgba(18,26,43,.98);
+      border-top: 1px solid var(--w-border);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .w-nav-inner { max-width: 480px; margin: 0 auto; display: flex; justify-content: space-around; padding: 6px 4px; }
     .w-nav button {
       background: none; border: 0; color: var(--w-muted); font-size: 10px; font-weight: 800;
       display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 10px; min-width: 56px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
     }
     .w-nav button.on { color: var(--w-primary); }
     .w-nav .ico { font-size: 18px; line-height: 1; }
+
     .w-card {
       background: var(--w-surface); border: 1px solid var(--w-border); border-radius: 16px;
       padding: 12px; margin-bottom: 10px;
@@ -111,9 +142,7 @@
     .w-btn.good { background: rgba(88,224,138,.15); color: var(--w-good); border: 1px solid rgba(88,224,138,.35); }
     .w-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .w-statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-    .w-stat {
-      background: rgba(0,0,0,.35); border-radius: 10px; padding: 6px; text-align: center;
-    }
+    .w-stat { background: rgba(0,0,0,.35); border-radius: 10px; padding: 6px; text-align: center; }
     .w-stat .k { font-size: 10px; font-weight: 800; color: var(--w-muted); letter-spacing: .04em; }
     .w-stat .v { font-size: 14px; font-weight: 900; }
     .w-sheep { display: flex; gap: 10px; align-items: flex-start; text-align: left; width: 100%; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
@@ -141,7 +170,8 @@
     textarea.w-input { min-height: 88px; font-family: ui-monospace, monospace; font-size: 11px; }
     .w-code { word-break: break-all; font-family: ui-monospace, monospace; font-size: 11px; color: var(--w-accent); background: var(--w-bg); border: 1px solid var(--w-border); border-radius: 12px; padding: 10px; }
     #wToast {
-      position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%);
+      position: fixed; left: 50%; bottom: calc(var(--w-nav-h) + 16px + env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%);
       background: var(--w-surface2); border: 1px solid rgba(232,168,56,.45); color: var(--w-fg);
       padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 700;
       z-index: 60; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center;
@@ -189,7 +219,7 @@
         <span class="w-pill troph" id="wTrophies">🏆 0</span>
       </div>
     </header>
-    <main class="w-main" id="wMain"></main>
+    <div id="wScroll"><main class="w-main" id="wMain"></main></div>
     <nav class="w-nav" id="wNav">
       <div class="w-nav-inner">
         <button type="button" data-screen="home" class="on"><span class="ico">🏠</span>Home</button>
@@ -230,7 +260,7 @@
     </div>
   </div>
 
-    <script src="wrestling.js?v=54"></script>
+    <script src="wrestling.js?v=55"></script>
   <script>
     (function () {
       // Force SW update + claim fresh assets
@@ -239,7 +269,7 @@
           regs.forEach(function (r) { r.update(); });
         });
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('sw.js?v=54').catch(function () {});
+          navigator.serviceWorker.register('sw.js?v=55').catch(function () {});
         });
       }
       // If game script failed, main stays empty — recover hard

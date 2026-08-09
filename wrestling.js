@@ -917,6 +917,8 @@
   function setScreen(s) {
     screen = s;
     render();
+    var sc = document.getElementById("wScroll");
+    if (sc) sc.scrollTop = 0;
     window.scrollTo(0, 0);
   }
 
