@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=55" />
+  <link rel="stylesheet" href="style.css?v=56" />
   <style>
     :root {
       --w-bg: #0b1220;
@@ -83,22 +83,48 @@
     }
     .w-pill.troph { color: var(--w-accent); }
 
+    
+    /* Hide scrollbars — keep scroll working (touch / trackpad / wheel) */
+    html.wrestling-page, body.wrestling-page, #wApp, #wScroll {
+      scrollbar-width: none !important;          /* Firefox */
+      -ms-overflow-style: none !important;       /* legacy Edge */
+    }
+    html.wrestling-page::-webkit-scrollbar,
+    body.wrestling-page::-webkit-scrollbar,
+    #wApp::-webkit-scrollbar,
+    #wScroll::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+      background: transparent !important;
+    }
+
     /* THE scroll surface — this is what the finger moves */
     #wScroll {
       flex: 1 1 auto;
       min-height: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
       overflow-x: hidden !important;
-      overflow-y: scroll !important; /* scroll not auto — forces scrollport on iOS */
+      overflow-y: auto !important;
       -webkit-overflow-scrolling: touch !important;
       touch-action: pan-y !important;
       overscroll-behavior-y: contain;
+      box-sizing: border-box;
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    #wScroll::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+    /* Center the actual content column inside the full-bleed scrollport */
+    #wMain {
       padding: 12px 12px calc(var(--w-nav-h) + 20px + env(safe-area-inset-bottom, 0px));
       max-width: 480px;
       width: 100%;
       margin: 0 auto;
       box-sizing: border-box;
+      min-height: min-content;
     }
-    #wMain { padding: 0; min-height: min-content; }
 
     .w-nav {
       flex: 0 0 auto;
@@ -260,7 +286,7 @@
     </div>
   </div>
 
-    <script src="wrestling.js?v=55"></script>
+    <script src="wrestling.js?v=56"></script>
   <script>
     (function () {
       // Force SW update + claim fresh assets
@@ -269,7 +295,7 @@
           regs.forEach(function (r) { r.update(); });
         });
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('sw.js?v=55').catch(function () {});
+          navigator.serviceWorker.register('sw.js?v=56').catch(function () {});
         });
       }
       // If game script failed, main stays empty — recover hard
