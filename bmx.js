@@ -184,7 +184,7 @@
     const g = groundAt(80);
     return {
       x: 80,
-      y: g.y - 14,
+      y: g.y - 12,
       vx: 0,
       vy: 0,
       angle: g.ang,
@@ -247,153 +247,137 @@
     r._trickWas = !!(keys.KeyT || keys.KeyJ);
     touch.trickPressed = false;
 
-    const g = groundAt(r.x);
-    const footY = g.y - 12;
-    const dist = r.y - footY;
-    const wasGrounded = r.grounded;
+        const wasGrounded = r.grounded;
+    const WHEEL = 12; // seat height above surface
 
-    // Ground detect with a little skin
-    if (r.vy >= -20 && dist >= -3 && dist < 18 && r.vy > -80) {
-      // check if moving into ground
-      const along = Math.cos(g.ang) * r.vx + Math.sin(g.ang) * r.vy;
-      const into = -g.nx * r.vx + -g.ny * r.vy; // toward ground if positive-ish
-      if (dist > -2) {
-        r.grounded = true;
-        r.y = footY;
-        // kill velocity into ground, keep tangent
-        const tx = Math.cos(g.ang), ty = Math.sin(g.ang);
-        const spd = r.vx * tx + r.vy * ty;
-        r.vx = tx * spd;
-        r.vy = ty * spd;
+    // integrate first for air / motion, then resolve ground
+    if (!r.grounded) {
+      r.vy += 980 * dt;
+      // air rotation
+      let spin = 0;
+      if (flipUpHeld()) spin -= 8.5;
+      if (flipDownHeld()) spin += 8.5;
+      if (!flipUpHeld() && !flipDownHeld()) {
+        const vAng = Math.atan2(r.vy, Math.max(50, r.vx));
+        const da = normAngle(vAng - r.angle);
+        r.av += da * 1.4 * dt;
       }
-    } else if (dist < -6) {
-      r.grounded = false;
-    }
+      r.av += spin * dt * 11;
+      r.av *= Math.pow(0.05, dt);
+      r.av = Math.max(-16, Math.min(16, r.av));
+      const prevA = r.angle;
+      r.angle += r.av * dt;
+      r.flipAccum += Math.abs(r.angle - prevA);
+      r.airTime += dt;
+      r.runBestAir = Math.max(r.runBestAir, r.airTime);
 
-    if (r.grounded) {
-      // snap angle toward ground
-      let da = normAngle(g.ang - r.angle);
-      r.angle += da * Math.min(1, 14 * dt);
-      r.av *= 0.2;
-
-      // gas / brake along surface
-      const tx = Math.cos(g.ang), ty = Math.sin(g.ang);
+      if (trickTap || (touch.trick && !r.trick)) startTrick(r);
+      if (r.trick) {
+        r.trickT += dt;
+        if (r.trickT > 0.8) completeTrick(r);
+      }
+      while (r.flipAccum >= Math.PI * 2 * 0.9) {
+        r.flipAccum -= Math.PI * 2;
+        r.flips += 1;
+        const name = r.av < 0
+          ? (r.flips > 1 ? r.flips + "× BACKFLIP" : "BACKFLIP")
+          : (r.flips > 1 ? r.flips + "× FRONTFLIP" : "FRONTFLIP");
+        addScore(r, 350 * r.flips, name, true);
+      }
+    } else {
+      // on ground: drive along surface
+      const g0 = groundAt(r.x);
+      let da = normAngle(g0.ang - r.angle);
+      r.angle += da * Math.min(1, 16 * dt);
+      r.av *= 0.15;
+      const tx = Math.cos(g0.ang), ty = Math.sin(g0.ang);
       let spd = r.vx * tx + r.vy * ty;
-      if (gasHeld()) spd += 420 * dt;
-      if (brakeHeld()) spd -= 380 * dt;
-      // friction + gravity component along slope
-      const gAlong = Math.sin(g.ang) * 520;
-      spd += gAlong * dt;
-      spd *= Math.pow(0.22, dt); // drag-ish — keep flow
-      // softer drag so you can keep speed
-      spd *= 1 - 0.35 * dt;
-      spd = Math.max(-80, Math.min(620, spd));
-
+      if (gasHeld()) spd += 520 * dt;
+      if (brakeHeld()) spd -= 460 * dt;
+      spd += Math.sin(g0.ang) * 560 * dt; // gravity along slope
+      spd *= Math.exp(-0.55 * dt); // gentle drag — keeps flow
+      if (!gasHeld() && !brakeHeld()) spd *= Math.exp(-0.25 * dt);
+      spd = Math.max(-100, Math.min(680, spd));
       r.vx = tx * spd;
       r.vy = ty * spd;
 
-      // bunny hop / lip boost
       if (jumped) {
-        const boost = 220 + Math.min(180, Math.abs(spd) * 0.25);
-        r.vx += g.nx * boost * 0.15;
-        r.vy += g.ny * -boost;
-        // slight pop along normal
-        r.vx += -g.nx * 40;
-        r.vy += -g.ny * 40;
+        const boost = 280 + Math.min(220, Math.abs(spd) * 0.3);
+        // launch skyward: sampleSeg normal (nx,ny) points into the dirt in y-down space
+        r.vx += -g0.nx * boost;
+        r.vy += -g0.ny * boost;
+        // keep forward flow
+        r.vx += tx * Math.max(0, spd) * 0.1;
+        r.vy += ty * Math.max(0, spd) * 0.1;
         r.grounded = false;
         r.airTime = 0;
         r.flipAccum = 0;
         r.flips = 0;
-        spawnDust(r.x, r.y + 10, 6);
+        spawnDust(r.x, r.y + 8, 7);
         pulseTrick("POP", false);
-      }
-
-      // landing score from previous air
-      if (!wasGrounded && r.airTime > 0.18) {
-        scoreLanding(r);
-      }
-
-      r.airTime = 0;
-      r.trick = null;
-      r.trickT = 0;
-    } else {
-      // AIR
-      r.airTime += dt;
-      r.runBestAir = Math.max(r.runBestAir, r.airTime);
-
-      // gravity
-      r.vy += 980 * dt;
-
-      // air rotation — smooth and snappy
-      let spin = 0;
-      if (flipUpHeld()) spin -= 7.2; // backflip (nose up / CCW if facing right)
-      if (flipDownHeld()) spin += 7.2; // frontflip
-      // slight auto stability toward velocity direction when not holding
-      if (!flipUpHeld() && !flipDownHeld()) {
-        const vAng = Math.atan2(r.vy, Math.max(40, r.vx));
-        const da = normAngle(vAng - r.angle);
-        r.av += da * 1.2 * dt;
-      }
-      r.av += spin * dt * 10;
-      r.av *= Math.pow(0.08, dt);
-      r.av = Math.max(-14, Math.min(14, r.av));
-      const prev = r.angle;
-      r.angle += r.av * dt;
-      r.flipAccum += Math.abs(r.angle - prev);
-
-      // style tricks
-      if (trickTap || (touch.trick && !r.trick)) {
-        startTrick(r);
-      }
-      if (r.trick) {
-        r.trickT += dt;
-        if (r.trickT > 0.85) {
-          // complete trick for points mid-air
-          completeTrick(r);
-        }
-      }
-
-      // continuous flip credit every full rotation
-      while (r.flipAccum >= Math.PI * 2 * 0.92) {
-        r.flipAccum -= Math.PI * 2;
-        r.flips += 1;
-        const name = r.av < 0 ? (r.flips > 1 ? r.flips + "× BACKFLIP" : "BACKFLIP") : (r.flips > 1 ? r.flips + "× FRONTFLIP" : "FRONTFLIP");
-        addScore(r, 350 * r.flips, name, true);
-      }
-
-      // crash if upside-down into ground hard
-      const g2 = groundAt(r.x);
-      const foot = g2.y - 12;
-      if (r.y >= foot && r.vy > 0) {
-        r.y = foot;
-        const landAng = normAngle(r.angle - g2.ang);
-        const impact = Math.hypot(r.vx, r.vy);
-        const bad = Math.abs(landAng) > 1.05 || (Math.abs(landAng) > 0.7 && impact > 420);
-        if (bad && r.invuln <= 0) {
-          crash(r, Math.abs(landAng) > 1.05 ? "Endo! Stick the landing next time." : "Too hot on the landing.");
-        } else {
-          // stick it
-          r.grounded = true;
-          const tx = Math.cos(g2.ang), ty = Math.sin(g2.ang);
-          let spd = r.vx * tx + r.vy * ty;
-          spd *= 0.92;
-          r.vx = tx * spd;
-          r.vy = ty * spd;
-          r.av = 0;
-          if (r.airTime > 0.18) scoreLanding(r);
-          r.airTime = 0;
-          r.flipAccum = 0;
-          r.flips = 0;
-          if (r.trick) completeTrick(r);
-          spawnDust(r.x, r.y + 8, 10);
-          shake = Math.min(10, impact * 0.01);
-        }
+      } else {
+        r.airTime = 0;
+        r.trick = null;
+        r.trickT = 0;
       }
     }
 
-    // integrate
+    // integrate position
     r.x += r.vx * dt;
     r.y += r.vy * dt;
+
+    // ground resolve (always project out of terrain)
+    {
+      const g = groundAt(r.x);
+      const surface = g.y - WHEEL;
+      const pen = r.y - surface; // >0 means below surface (canvas y down)
+      if (pen > -2.5) {
+        // contact or slight above with downward motion
+        const into = r.vx * -g.nx + r.vy * -g.ny; // vel into ground (canvas: +y down, normal ny usually +)
+        // our nx,ny from sampleSeg: nx=-sin(ang), ny=cos(ang) — points "up-leftish" on uphill
+        // For y-down coords, outward normal from ground should reduce y. ground normal pointing above surface:
+        // nUp = (-sin(ang), -cos? wait)
+        // ang = atan2(dy,dx). For flat ang=0, above is -Y. normal should be (0,-1) in y-down? 
+        // sampleSeg: nx=-sin(ang), ny=cos(ang). flat: (0,1) which points DOWN. So -n points up.
+        const nUpX = -g.nx, nUpY = -g.ny; // points above surface in y-down world
+        const vInto = -(r.vx * nUpX + r.vy * nUpY); // positive if moving into ground
+
+        if (r.grounded || vInto > -30 || pen > 0) {
+          // snap onto surface
+          if (pen > -1) {
+            r.y = surface;
+            // remove velocity into ground, keep tangent
+            const tx = Math.cos(g.ang), ty = Math.sin(g.ang);
+            let spd = r.vx * tx + r.vy * ty;
+            if (!r.grounded && pen > 0) {
+              // landing
+              const landAng = Math.abs(normAngle(r.angle - g.ang));
+              const impact = Math.hypot(r.vx, r.vy);
+              const bad = landAng > 1.1 || (landAng > 0.75 && impact > 480);
+              if (bad && r.invuln <= 0 && r.airTime > 0.12) {
+                crash(r, landAng > 1.1 ? "Endo! Stick the landing next time." : "Too hot on the landing.");
+              } else {
+                if (!wasGrounded && r.airTime > 0.18) scoreLanding(r);
+                if (r.trick) completeTrick(r);
+                spawnDust(r.x, r.y + 6, 9);
+                shake = Math.min(10, impact * 0.012);
+                spd *= 0.94;
+                r.flips = 0;
+                r.flipAccum = 0;
+                r.airTime = 0;
+              }
+            }
+            r.vx = tx * spd;
+            r.vy = ty * spd;
+            r.grounded = true;
+            r.angle += normAngle(g.ang - r.angle) * Math.min(1, 20 * dt);
+          }
+        }
+      } else {
+        // clearly above ground
+        if (pen < -8) r.grounded = false;
+      }
+    }
 
     // trail
     if (r.trail.length > 40) r.trail.shift();
