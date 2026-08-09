@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="style.css?v=52" />
+  <link rel="stylesheet" href="style.css?v=53" />
   <style>
     :root {
       --w-bg: #0b1220;
@@ -202,13 +202,49 @@
     </div>
   </div>
 
-  <script src="wrestling.js?v=52"></script>
+    <script src="wrestling.js?v=53"></script>
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js').catch(function () {});
-      });
-    }
+    (function () {
+      // Force SW update + claim fresh assets
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) { r.update(); });
+        });
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js?v=53').catch(function () {});
+        });
+      }
+      // If game script failed, main stays empty — recover hard
+      function recover() {
+        var main = document.getElementById('wMain');
+        if (!main) return;
+        if (main.innerHTML && main.innerHTML.trim().length > 20) return;
+        main.innerHTML =
+          '<div class="w-hero"><h1>Update needed</h1>' +
+          '<p style="color:var(--w-muted);margin:8px 0 14px">Your phone held an old broken file. Tap below to load the real game.</p>' +
+          '<button type="button" class="w-btn block" id="wForceReload">Reload Sheep Wrestling</button>' +
+          '<button type="button" class="w-btn ghost block" id="wNukeCache" style="margin-top:8px">Clear cache & reload</button></div>';
+        var a = document.getElementById('wForceReload');
+        var b = document.getElementById('wNukeCache');
+        if (a) a.onclick = function () {
+          location.replace('wrestling.html?v=' + Date.now());
+        };
+        if (b) b.onclick = function () {
+          var done = function () { location.replace('wrestling.html?v=' + Date.now()); };
+          if (!('serviceWorker' in navigator)) return done();
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            return Promise.all(regs.map(function (r) { return r.unregister(); }));
+          }).then(function () {
+            if (!window.caches) return;
+            return caches.keys().then(function (keys) {
+              return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+            });
+          }).then(done).catch(done);
+        };
+      }
+      setTimeout(recover, 600);
+      setTimeout(recover, 2000);
+    })();
   </script>
 </body>
 </html>
