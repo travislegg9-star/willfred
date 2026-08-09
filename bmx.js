@@ -184,7 +184,7 @@
     const g = groundAt(80);
     return {
       x: 80,
-      y: g.y - 12,
+      y: g.y - 18,
       vx: 0,
       vy: 0,
       angle: g.ang,
@@ -248,7 +248,7 @@
     touch.trickPressed = false;
 
         const wasGrounded = r.grounded;
-    const WHEEL = 12; // seat height above surface
+    const WHEEL = 18; // bike origin above surface (wheels sit on dirt)
 
     // integrate first for air / motion, then resolve ground
     if (!r.grounded) {
