@@ -55,6 +55,62 @@
     { key: "wool_armor", name: "Thick Wool Coat", emoji: "🧥", cost: 600, blurb: "Extra padding. Soaks damage.", slot: "body", stats: { toughness: 4, weight: 2, agility: -0.5 } },
   ];
 
+
+  const MOVES = [
+    { id: "headbutt", name: "Headbutt", callout: "HORNS FIRST", tier: "basic", kind: "strike", minBattles: 0, damageMul: 0.7, meterGain: 12, meterCost: 0, canFinish: false, stunChance: 0.08 },
+    { id: "shoulder", name: "Shoulder Block", callout: "HEAVY SHOULDER", tier: "basic", kind: "strike", minBattles: 0, damageMul: 0.65, meterGain: 10, meterCost: 0, canFinish: false, stunChance: 0.05 },
+    { id: "hornlock", name: "Horn Lock", callout: "HORNS LOCKED", tier: "basic", kind: "lock", minBattles: 0, damageMul: 0.4, meterGain: 8, meterCost: 0, canFinish: false, stunChance: 0.12 },
+    { id: "shove", name: "Paddock Shove", callout: "SHOVES THROUGH", tier: "basic", kind: "strike", minBattles: 0, damageMul: 0.55, meterGain: 8, meterCost: 0, canFinish: false, stunChance: 0.04 },
+    { id: "rear_kick", name: "Rear Kick", callout: "BACK-HOOF!", tier: "basic", kind: "strike", minBattles: 0, damageMul: 0.6, meterGain: 9, meterCost: 0, canFinish: false, stunChance: 0.1 },
+    { id: "irish_whip", name: "Irish Whip", callout: "INTO THE ROPES", tier: "basic", kind: "strike", minBattles: 1, damageMul: 0.5, meterGain: 14, meterCost: 0, canFinish: false, stunChance: 0.06 },
+    { id: "paddock_driver", name: "Paddock Driver", callout: "PADDOCK DRIVER", tier: "power", kind: "slam", minBattles: 3, damageMul: 1.15, meterGain: 18, meterCost: 0, canFinish: false, stunChance: 0.22 },
+    { id: "fleece_buster", name: "Fleece Buster", callout: "FLEECE BUSTER", tier: "power", kind: "slam", minBattles: 6, damageMul: 1.2, meterGain: 16, meterCost: 0, canFinish: false, stunChance: 0.28 },
+    { id: "spinning_horn", name: "Spinning Horn", callout: "SPINNING HORN", tier: "power", kind: "strike", minBattles: 8, damageMul: 1.1, meterGain: 15, meterCost: 0, canFinish: false, stunChance: 0.18 },
+    { id: "yard_slam", name: "Yard Slam", callout: "YARD SLAM", tier: "power", kind: "slam", minBattles: 10, damageMul: 1.25, meterGain: 18, meterCost: 0, canFinish: false, stunChance: 0.25 },
+    { id: "turnbuckle_ram", name: "Turnbuckle Ram", callout: "INTO THE BUCKLE", tier: "power", kind: "charge", minBattles: 12, damageMul: 1.18, meterGain: 20, meterCost: 0, canFinish: false, stunChance: 0.2 },
+    { id: "wool_suplex", name: "Wool Suplex", callout: "WOOL SUPLEX", tier: "power", kind: "slam", minBattles: 14, damageMul: 1.22, meterGain: 17, meterCost: 0, canFinish: false, stunChance: 0.24 },
+    { id: "god_ram_spear", name: "God Ram Spear", callout: "GOD RAM SPEAR", tier: "super", kind: "charge", minBattles: 18, damageMul: 1.7, meterGain: 8, meterCost: 80, canFinish: true, stunChance: 0.45 },
+    { id: "golden_splash", name: "Golden Fleece Splash", callout: "FROM THE TOP ROPE", tier: "super", kind: "aerial", minBattles: 22, damageMul: 1.65, meterGain: 8, meterCost: 80, canFinish: true, stunChance: 0.4 },
+    { id: "steel_guillotine", name: "Steel Horn Guillotine", callout: "GUILLOTINE", tier: "super", kind: "strike", minBattles: 28, damageMul: 1.75, meterGain: 6, meterCost: 85, canFinish: true, stunChance: 0.5 },
+    { id: "thunder_driver", name: "Thunder Driver", callout: "THUNDER DRIVER", tier: "super", kind: "slam", minBattles: 32, damageMul: 1.8, meterGain: 6, meterCost: 90, canFinish: true, stunChance: 0.48 },
+    { id: "the_shearing", name: "The Shearing", callout: "THE SHEARING", tier: "rare", kind: "finisher", minBattles: 40, damageMul: 2.4, meterGain: 0, meterCost: 100, canFinish: true, stunChance: 1 },
+    { id: "woolpocalypse", name: "Woolpocalypse", callout: "WOOLPOCALYPSE", tier: "rare", kind: "finisher", minBattles: 60, damageMul: 2.7, meterGain: 0, meterCost: 100, canFinish: true, stunChance: 1 },
+    { id: "midnight_eclipse", name: "Midnight Eclipse", callout: "MIDNIGHT ECLIPSE", tier: "rare", kind: "finisher", minBattles: 80, minStage: "prize", damageMul: 2.9, meterGain: 0, meterCost: 100, canFinish: true, stunChance: 1 },
+    { id: "thunderhead_judgment", name: "Thunderhead Judgment", callout: "THUNDERHEAD JUDGMENT", tier: "rare", kind: "finisher", minBattles: 0, minWins: 50, breed: "thunderhead", damageMul: 3.1, meterGain: 0, meterCost: 100, canFinish: true, stunChance: 1 },
+    { id: "legends_last_charge", name: "Legend's Last Charge", callout: "LEGEND'S LAST CHARGE", tier: "rare", kind: "finisher", minBattles: 100, minStage: "legend", damageMul: 3.4, meterGain: 0, meterCost: 100, canFinish: true, stunChance: 1 },
+  ];
+  function isMoveUnlocked(move, fights, wins, stage, breed) {
+    if (fights < (move.minBattles || 0)) return false;
+    if (move.minWins && wins < move.minWins) return false;
+    if (move.minStage && stageIndex(stage) < stageIndex(move.minStage)) return false;
+    if (move.breed && breed !== move.breed) return false;
+    return true;
+  }
+  function unlockedMoves(fights, wins, stage, breed) {
+    return MOVES.filter((m) => isMoveUnlocked(m, fights, wins, stage, breed));
+  }
+  function lockReason(move) {
+    const bits = [];
+    if (move.minBattles) bits.push(move.minBattles + " bouts");
+    if (move.minWins) bits.push(move.minWins + " wins");
+    if (move.minStage) bits.push(stageDef(move.minStage).name + "+");
+    if (move.breed) bits.push(BREEDS[move.breed].name + " only");
+    return bits.length ? "Unlock: " + bits.join(" · ") : "Unlocked";
+  }
+  function pickMove(pool, rng, meter, wantFinish, requireRare, opponentLow) {
+    const rares = pool.filter((m) => m.tier === "rare" && meter >= m.meterCost);
+    const supers = pool.filter((m) => m.tier === "super" && meter >= m.meterCost);
+    const powers = pool.filter((m) => m.tier === "power");
+    const basics = pool.filter((m) => m.tier === "basic");
+    if (wantFinish && opponentLow && rares.length) return rares[(rng() * rares.length) | 0];
+    if (requireRare && opponentLow && rares.length && rng() < 0.7) return rares[(rng() * rares.length) | 0];
+    if (opponentLow && supers.length && rng() < 0.55) return supers[(rng() * supers.length) | 0];
+    if (supers.length && rng() < 0.18) return supers[(rng() * supers.length) | 0];
+    if (powers.length && rng() < 0.42) return powers[(rng() * powers.length) | 0];
+    const rest = basics.length ? basics : pool;
+    return rest[(rng() * rest.length) | 0] || MOVES[0];
+  }
+
   const SHEEP_NAMES = ["Buster","Tank","Nugget","Thunder","Crusher","Woolly","Rambo","Brick","Diesel","Bazza","Shearer","Mutton","Knuckles","Boomer","Spike","Rusty","Havoc","Titan","Ruckus","Blaze","Grit","Paddock","Stomper","Kingpin","Outback","Fury","Moss","Cliff","Bolt","Maul"];
   const RARITY_COLOR = { common: "#8b95a8", uncommon: "#58e08a", rare: "#4bc0e0", epic: "#a06bff", legendary: "#ffd23d" };
   const STAT_KEYS = ["power", "toughness", "weight", "agility", "spirit", "charge"];
@@ -109,100 +165,118 @@
   function cloneSheep(s) { return Object.assign({}, s, { buffs: s.buffs ? Object.assign({}, s.buffs) : undefined }); }
   function clearBuffs(sheep) { if (!sheep.buffs) return sheep; const n = Object.assign({}, sheep); delete n.buffs; return n; }
 
-  function simulateFight(leftSheep, rightSheep, seed) {
+  function simulateFight(leftSheep, rightSheep, seed, opts) {
+    opts = opts || {};
     const rng = mulberry32(seed);
-    const left = { sheep: leftSheep, displayName: leftSheep.name, maxHp: maxHp(leftSheep), hp: maxHp(leftSheep), maxStam: maxStam(leftSheep), stam: maxStam(leftSheep), stun: 0, chargeMeter: 0, side: "left" };
-    const right = { sheep: rightSheep, displayName: rightSheep.name, maxHp: maxHp(rightSheep), hp: maxHp(rightSheep), maxStam: maxStam(rightSheep), stam: maxStam(rightSheep), stun: 0, chargeMeter: 0, side: "right" };
+    const requireRare = !!opts.requireRare;
+    const career = opts.careerFights != null ? opts.careerFights : (leftSheep.wins + leftSheep.losses);
+    const leftPool = unlockedMoves(Math.max(career, leftSheep.wins + leftSheep.losses), leftSheep.wins, leftSheep.stage, leftSheep.breed);
+    const rightPool = unlockedMoves(Math.max(8, rightSheep.wins + rightSheep.losses + 12), Math.max(4, rightSheep.wins), rightSheep.stage, rightSheep.breed);
+    const left = { sheep: leftSheep, displayName: leftSheep.name, maxHp: maxHp(leftSheep), hp: maxHp(leftSheep), maxStam: maxStam(leftSheep), stam: maxStam(leftSheep), stun: 0, meter: 20, side: "left" };
+    const right = { sheep: rightSheep, displayName: rightSheep.name, maxHp: maxHp(rightSheep), hp: maxHp(rightSheep), maxStam: maxStam(rightSheep), stam: maxStam(rightSheep), stun: 0, meter: 16, side: "right" };
     const L = effectiveStats(leftSheep), R = effectiveStats(rightSheep);
     const events = [];
     let t = 0;
     const push = (e) => events.push(Object.assign({ t: t }, e));
-    push({ kind: "approach", actor: "both", intensity: 0.3, text: "They lock eyes…" });
-    t += 0.6 + rng() * 0.4;
-    push({ kind: "cheer", actor: "both", intensity: 0.4, text: "CROWD GOES OFF" });
-    let rounds = 0;
-    while (left.hp > 0 && right.hp > 0 && rounds < 28) {
-      rounds++; t += 0.35 + rng() * 0.25;
+    push({ kind: "lights", actor: "both", intensity: 0.4, text: "Lights down…" });
+    t += 1.0;
+    push({ kind: "entrance", actor: "left", intensity: 0.6, text: left.displayName + " walks." });
+    t += 1.6;
+    push({ kind: "entrance", actor: "right", intensity: 0.6, text: "And his opponent — " + right.displayName + "!" });
+    t += 1.6;
+    push({ kind: "crowd", actor: "both", intensity: 0.5, text: "The paddock is on its feet" });
+    t += 0.5;
+    push({ kind: "bell", actor: "both", intensity: 0.7, text: "DING DING DING" });
+    t += 0.6;
+    push({ kind: "lockup", actor: "both", intensity: 0.45, text: "They lock horns…" });
+    t += 0.9;
+    let rounds = 0, finishMoveId, usedRare = false;
+    const nearfalls = { left: 0, right: 0 };
+    while (left.hp > 0 && right.hp > 0 && rounds < 22) {
+      rounds++; t += 0.5 + rng() * 0.32;
       if (left.stun > 0) left.stun -= 1;
       if (right.stun > 0) right.stun -= 1;
-      left.chargeMeter += L.charge * 0.08 + rng() * 4;
-      right.chargeMeter += R.charge * 0.08 + rng() * 4;
-      const leftCan = left.stun <= 0 && left.stam > 4;
-      const rightCan = right.stun <= 0 && right.stam > 4;
+      left.meter = Math.min(100, left.meter + L.charge * 0.12 + rng() * 5);
+      right.meter = Math.min(100, right.meter + R.charge * 0.12 + rng() * 5);
+      left.stam = Math.min(left.maxStam, left.stam + 3 + L.spirit * 0.06);
+      right.stam = Math.min(right.maxStam, right.stam + 3 + R.spirit * 0.06);
+      const leftCan = left.stun <= 0 && left.stam > 6;
+      const rightCan = right.stun <= 0 && right.stam > 6;
       if (!leftCan && !rightCan) {
-        left.stam = Math.min(left.maxStam, left.stam + 8);
-        right.stam = Math.min(right.maxStam, right.stam + 8);
-        push({ kind: "recover", actor: "both", intensity: 0.2, text: "Breathing hard…" });
+        push({ kind: "recover", actor: "both", intensity: 0.25, text: "Breathing hard…" });
+        left.stam += 10; right.stam += 10;
         continue;
       }
-      const leftInit = leftCan ? L.agility * 0.6 + L.spirit * 0.3 + L.charge * 0.2 + rng() * 12 + (left.chargeMeter > 70 ? 8 : 0) : -999;
-      const rightInit = rightCan ? R.agility * 0.6 + R.spirit * 0.3 + R.charge * 0.2 + rng() * 12 + (right.chargeMeter > 70 ? 8 : 0) : -999;
+      const leftInit = leftCan ? L.agility * 0.6 + L.spirit * 0.3 + L.charge * 0.2 + rng() * 12 + (left.meter > 70 ? 8 : 0) : -999;
+      const rightInit = rightCan ? R.agility * 0.6 + R.spirit * 0.3 + R.charge * 0.2 + rng() * 12 + (right.meter > 70 ? 8 : 0) : -999;
       const actor = leftInit >= rightInit ? "left" : "right";
       const atk = actor === "left" ? left : right;
       const def = actor === "left" ? right : left;
       const AS = actor === "left" ? L : R;
       const DS = actor === "left" ? R : L;
-      atk.stam = Math.max(0, atk.stam - (6 + rng() * 5));
-      def.stam = Math.max(0, def.stam - (3 + rng() * 3));
-      const bigCharge = atk.chargeMeter >= 75 + rng() * 20;
-      if (bigCharge) atk.chargeMeter = 0;
-      const attackPower = AS.power * (bigCharge ? 1.55 : 1) + AS.charge * (bigCharge ? 0.9 : 0.35) + AS.weight * 0.35 + rng() * 14;
-      const defensePower = DS.toughness * 0.9 + DS.weight * 0.45 + DS.spirit * 0.25 + rng() * 12;
-      const margin = attackPower - defensePower;
-      const intensity = Math.min(1, 0.35 + Math.abs(margin) / 40 + (bigCharge ? 0.25 : 0));
-      if (bigCharge && margin > -4) {
-        const dmg = Math.max(6, Math.round(AS.power * 0.85 + AS.charge * 0.7 + AS.weight * 0.25 - DS.toughness * 0.35 + rng() * 10));
-        def.hp = Math.max(0, def.hp - dmg);
-        if (rng() < 0.45) {
-          def.stun = 1 + (rng() < 0.3 ? 1 : 0);
-          push({ kind: "stun", actor: actor, damage: dmg, intensity: 1, text: atk.displayName + " THUNDER SMASH!" });
-        } else {
-          push({ kind: "crit", actor: actor, damage: dmg, intensity: 1, text: atk.displayName + " FULL SEND CHARGE!" });
-        }
-        push({ kind: "smash", actor: actor, damage: dmg, intensity: intensity, text: "💥 " + dmg });
-      } else if (margin > 8) {
-        const dmg = Math.max(4, Math.round(AS.power * 0.55 + AS.weight * 0.2 - DS.toughness * 0.28 + rng() * 8));
-        def.hp = Math.max(0, def.hp - dmg);
-        push({ kind: "smash", actor: actor, damage: dmg, intensity: intensity, text: atk.displayName + " SMASHES through!" });
-        if (rng() < 0.22) { def.stun = 1; push({ kind: "stun", actor: actor, intensity: 0.7, text: "Dazed!" }); }
-      } else if (margin > -6) {
-        const dmgA = Math.max(2, Math.round(3 + rng() * 5 + AS.power * 0.12));
-        const dmgB = Math.max(2, Math.round(3 + rng() * 5 + DS.power * 0.12));
-        atk.hp = Math.max(0, atk.hp - dmgB * 0.55);
-        def.hp = Math.max(0, def.hp - dmgA * 0.55);
-        if (rng() < 0.5) push({ kind: "hornlock", actor: "both", intensity: 0.75, text: "HORNS LOCKED — grinding!" });
-        else push({ kind: "clash", actor: "both", intensity: 0.7, text: "BANG — skulls collide!" });
-        if (AS.weight + AS.power + rng() * 8 > DS.weight + DS.power + rng() * 8) {
-          const dmg = Math.max(3, Math.round(AS.weight * 0.35 + rng() * 5));
-          def.hp = Math.max(0, def.hp - dmg);
-          push({ kind: "shove", actor: actor, damage: dmg, intensity: 0.65, text: atk.displayName + " shoves forward!" });
-        } else {
-          const dmg = Math.max(3, Math.round(DS.weight * 0.35 + rng() * 5));
-          atk.hp = Math.max(0, atk.hp - dmg);
-          push({ kind: "shove", actor: def.side, damage: dmg, intensity: 0.65, text: def.displayName + " digs in and shoves back!" });
-        }
-      } else {
-        const dmg = Math.max(2, Math.round(DS.toughness * 0.25 + DS.power * 0.2 + rng() * 4));
-        atk.hp = Math.max(0, atk.hp - dmg);
-        push({ kind: "clash", actor: def.side, damage: dmg, intensity: 0.55, text: def.displayName + " shrugs it off!" });
+      const pool = actor === "left" ? leftPool : rightPool;
+      const defLow = def.hp / def.maxHp < 0.28;
+      const wantFinish = defLow && atk.meter >= 80;
+      const move = pickMove(pool, rng, atk.meter, wantFinish, requireRare && actor === "left", defLow);
+      if (rng() < 0.14 && def.stun <= 0) {
+        atk.stam = Math.max(0, atk.stam - 5);
+        push({ kind: "reversal", actor: def.side, intensity: 0.7, text: def.displayName + " reverses!" });
+        const chip = Math.max(3, Math.round(DS.power * 0.18 + rng() * 4));
+        atk.hp = Math.max(1, atk.hp - chip);
+        continue;
       }
-      left.stam = Math.min(left.maxStam, left.stam + 2.5 + L.spirit * 0.05);
-      right.stam = Math.min(right.maxStam, right.stam + 2.5 + R.spirit * 0.05);
+      atk.stam = Math.max(0, atk.stam - (8 + rng() * 6));
+      atk.meter = Math.max(0, atk.meter - move.meterCost + move.meterGain);
+      const dmg = Math.max(5, Math.round(AS.power * 0.42 * move.damageMul + AS.weight * 0.18 - DS.toughness * 0.22 + rng() * 8));
+      const intensity = Math.min(1, 0.35 + dmg / 36 + (move.tier === "rare" ? 0.4 : 0));
+      const wouldKill = def.hp - dmg <= 0;
+      const rareMove = move.tier === "rare";
+      const superMove = move.tier === "super" || rareMove;
+      if (requireRare && wouldKill && !rareMove) {
+        def.hp = Math.max(6, Math.round(def.maxHp * 0.08));
+        push({ kind: superMove ? "super" : "move", actor: actor, moveId: move.id, damage: dmg, intensity: intensity, text: move.callout, slowmo: superMove, zoom: superMove ? 1.22 : 1 });
+        t += 0.3;
+        push({ kind: "kickout", actor: def.side, intensity: 0.9, text: def.displayName + " WILL NOT STAY DOWN" });
+        nearfalls[def.side] += 1;
+        def.stun = 0;
+        continue;
+      }
+      def.hp = Math.max(0, def.hp - dmg);
+      if (rng() < move.stunChance) def.stun = rareMove ? 2 : 1;
+      if (rareMove) usedRare = true;
+      const kind = rareMove ? "finisher" : superMove ? "super" : "move";
+      push({ kind: kind, actor: actor, moveId: move.id, damage: dmg, intensity: intensity, text: move.callout, slowmo: superMove, zoom: rareMove ? 1.38 : superMove ? 1.2 : 1, timing: actor === "left" && move.tier !== "basic" });
+      if (def.hp <= 0) { finishMoveId = move.id; break; }
+      if (def.hp / def.maxHp < 0.22 && nearfalls[def.side] < 2 && rng() < 0.5) {
+        t += 0.4;
+        push({ kind: "nearfall", actor: actor, intensity: 0.85, text: "ONE… TWO…" });
+        t += 0.5;
+        push({ kind: "kickout", actor: def.side, intensity: 0.95, text: "KICKOUT!" });
+        nearfalls[def.side] += 1;
+        def.hp = Math.max(def.hp, Math.round(def.maxHp * 0.1));
+      }
     }
     if (left.hp > 0 && right.hp > 0) {
-      if (left.hp === right.hp) { if (rng() < 0.5) right.hp = 0; else left.hp = 0; }
+      t += 0.35;
+      push({ kind: "timeout", actor: "both", intensity: 0.7, text: "JUDGES CALL IT" });
+      if (requireRare && !usedRare && left.hp >= right.hp) { right.hp = Math.max(right.hp, 1); left.hp = 0; }
+      else if (left.hp === right.hp) { if (rng() < 0.5) right.hp = 0; else left.hp = 0; }
       else if (left.hp > right.hp) right.hp = 0; else left.hp = 0;
-      t += 0.3;
-      push({ kind: "cheer", actor: "both", intensity: 0.8, text: "JUDGES CALL IT!" });
     }
     const winner = left.hp > 0 ? "left" : "right";
-    t += 0.4;
-    push({ kind: "ko", actor: winner, intensity: 1, text: (winner === "left" ? left.displayName : right.displayName) + " WINS!" });
+    t += 0.45;
+    if (winner === "left" && (usedRare || finishMoveId)) {
+      push({ kind: "pin", actor: "left", intensity: 1, text: "ONE… TWO… THREE!", slowmo: true, zoom: 1.3, moveId: finishMoveId });
+      t += 1.0;
+    }
+    push({ kind: "ko", actor: winner, intensity: 1, text: (winner === "left" ? left.displayName : right.displayName) + " WINS" });
+    t += 0.7;
+    push({ kind: "celebrate", actor: winner, intensity: 1, text: winner === "left" ? "THE PADDOCK ERUPTS" : "The paddock goes quiet" });
     const winnerSheep = winner === "left" ? leftSheep : rightSheep;
     const loserSheep = winner === "left" ? rightSheep : leftSheep;
     const ratingDiff = powerRating(loserSheep) - powerRating(winnerSheep);
     const prize = Math.max(15, Math.round(28 + powerRating(loserSheep) * 0.35 + Math.max(0, ratingDiff) * 0.5 + stageDef(winnerSheep.stage).size * 12));
-    return { seed: seed, events: events, winner: winner, duration: t, leftHpEnd: Math.max(0, left.hp), rightHpEnd: Math.max(0, right.hp), prize: prize, left: leftSheep, right: rightSheep };
+    return { seed: seed, events: events, winner: winner, duration: t, leftHpEnd: Math.max(0, left.hp), rightHpEnd: Math.max(0, right.hp), prize: prize, left: leftSheep, right: rightSheep, finishMoveId: finishMoveId, requiredRare: requireRare, usedRare: usedRare, title: opts.title || "Bout" };
   }
 
   // ─── Sheep helpers ──────────────────────────────────────────────────
@@ -410,12 +484,17 @@
     const active = activeSheep();
     if (!active) { arenaList = []; return; }
     const rating = powerRating(active);
+    const fights = save.totalFights || 0;
+    const hasShearing = isMoveUnlocked(MOVES.find((m) => m.id === "the_shearing"), fights, active.wins, active.stage, active.breed);
+    const hasWool = isMoveUnlocked(MOVES.find((m) => m.id === "woolpocalypse"), fights, active.wins, active.stage, active.breed);
     arenaList = [
-      { id: "a1", title: "Yard Scrap", blurb: "A soft local lamb. Warm-up smash.", difficulty: 0, prize: 20, sheep: generateOpponent(rating * 0.72, 0, hashSeed([active.id, "a1", active.wins])) },
-      { id: "a2", title: "District Bout", blurb: "Even fight. Expect horns.", difficulty: 2, prize: 45, sheep: generateOpponent(rating * 0.98, 2, hashSeed([active.id, "a2", active.wins])) },
-      { id: "a3", title: "County Classic", blurb: "They hit hard. Bring feed buffs.", difficulty: 4, prize: 90, sheep: generateOpponent(rating * 1.12, 4, hashSeed([active.id, "a3", active.wins])) },
-      { id: "a4", title: "State Smash", blurb: "Hectic. Prize rams live here.", difficulty: 6, prize: 180, sheep: generateOpponent(rating * 1.28, 6, hashSeed([active.id, "a4", active.wins])) },
-      { id: "a5", title: "God Ram Gauntlet", blurb: "Hell hectic. Only legends leave standing.", difficulty: 9, prize: 400, sheep: generateOpponent(rating * 1.5, 9, hashSeed([active.id, "a5", active.wins])) },
+      { id: "a1", title: "Yard Scrap", blurb: "A soft local lamb. Warm-up smash.", difficulty: 0, prize: 20, requireRare: false, sheep: generateOpponent(rating * 0.72, 0, hashSeed([active.id, "a1", active.wins])) },
+      { id: "a2", title: "District Bout", blurb: "Even fight. Named power moves start landing.", difficulty: 2, prize: 45, requireRare: false, sheep: generateOpponent(rating * 0.98, 2, hashSeed([active.id, "a2", active.wins])) },
+      { id: "a3", title: "County Classic", blurb: "They hit hard. Bring feed buffs.", difficulty: 4, prize: 90, requireRare: false, sheep: generateOpponent(rating * 1.12, 4, hashSeed([active.id, "a3", active.wins])) },
+      { id: "a4", title: "State Smash", blurb: "Hectic. Prize rams live here.", difficulty: 6, prize: 180, requireRare: false, sheep: generateOpponent(rating * 1.28, 6, hashSeed([active.id, "a4", active.wins])) },
+      { id: "a5", title: "God Ram Gauntlet", blurb: "Hell hectic. Super finishers fly.", difficulty: 9, prize: 400, requireRare: false, sheep: generateOpponent(rating * 1.5, 9, hashSeed([active.id, "a5", active.wins])) },
+      { id: "belt", title: "Paddock Championship", blurb: hasShearing ? "They will not stay down unless you hit a RARE finisher." : "Locked — The Shearing unlocks at 40 career bouts.", difficulty: 10, prize: 650, requireRare: true, locked: !hasShearing, sheep: generateOpponent(rating * 1.62, 10, hashSeed([active.id, "belt", active.wins])) },
+      { id: "myth", title: "Woolpocalypse Title", blurb: hasWool ? "Mythic belt. Only Woolpocalypse (or rarer) puts them away." : "Locked — Woolpocalypse at 60 career bouts.", difficulty: 12, prize: 1200, requireRare: true, locked: !hasWool, sheep: generateOpponent(rating * 1.85, 12, hashSeed([active.id, "myth", active.wins])) },
     ];
   }
 
@@ -507,8 +586,9 @@
     const active = activeSheep();
     const opp = arenaList.find((o) => o.id === oppId);
     if (!active || !opp) return;
+    if (opp.locked) return toast(opp.blurb);
     const seed = hashSeed([active.id, opp.sheep.seed, active.wins, Date.now() & 0xffff]);
-    const result = simulateFight(cloneSheep(active), cloneSheep(opp.sheep), seed);
+    const result = simulateFight(cloneSheep(active), cloneSheep(opp.sheep), seed, { requireRare: !!opp.requireRare, title: opp.title, careerFights: save.totalFights });
     result.prize = Math.max(result.prize, opp.prize);
     lastFight = result;
     fightMode = "arena";
@@ -567,6 +647,7 @@
     document.getElementById("wResultTitle").textContent = won ? "WIN!" : "DOWN!";
     document.getElementById("wResultBody").innerHTML =
       (won ? next.name + " smashed " + lastFight.right.name : lastFight.right.name + " smashed " + next.name) +
+      (lastFight.finishMoveId ? "<br><b style='color:var(--w-primary)'>" + esc((MOVES.find(function(m){return m.id===lastFight.finishMoveId;})||{}).name || "Finisher") + "</b>" : "") +
       "<br><b style='color:var(--w-primary)'>" + (won ? "+" : "+") + coinDelta + " coins</b>" +
       (trophyDelta ? " · +" + trophyDelta + " trophies" : "") +
       "<br>Record " + next.wins + "W – " + next.losses + "L";
@@ -580,11 +661,17 @@
     document.getElementById("wNav").classList.add("hidden");
     document.getElementById("wLName").textContent = fight.left.name;
     document.getElementById("wRName").textContent = fight.right.name;
+    const titleEl = document.getElementById("wFightTitle");
+    if (titleEl) titleEl.textContent = fight.title || (fight.requiredRare ? "TITLE" : "LIVE");
     const lMax = maxHp(fight.left), rMax = maxHp(fight.right);
-    let lHp = lMax, rHp = rMax;
+    let lHp = lMax, rHp = rMax, lMeter = 20, rMeter = 16;
     const setHp = () => {
       document.getElementById("wLHp").style.width = Math.max(0, (lHp / lMax) * 100) + "%";
       document.getElementById("wRHp").style.width = Math.max(0, (rHp / rMax) * 100) + "%";
+      const lm = document.getElementById("wLMeter");
+      const rm = document.getElementById("wRMeter");
+      if (lm) lm.style.width = Math.max(0, Math.min(100, lMeter)) + "%";
+      if (rm) rm.style.width = Math.max(0, Math.min(100, rMeter)) + "%";
     };
     setHp();
 
@@ -613,26 +700,40 @@
         particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 8, vy: -Math.random() * 6 - 1, life: 0.6 + Math.random() * 0.5, c: col, r: 2 + Math.random() * 4 });
       }
     };
+    let timeScale = 1, zoom = 1, wantZoom = 1, slowT = 0;
     const applyEvent = (ev) => {
-      banner = ev.text || ""; bannerT = 1.1;
-      if (ev.kind === "smash" || ev.kind === "crit" || ev.kind === "stun") {
-        shake = 10 + ev.intensity * 14; flash = 0.45 + ev.intensity * 0.4;
-        if (ev.actor === "left") { lx = 0.48; rx = 0.58; lPose = 1; if (ev.damage) rHp = Math.max(0, rHp - ev.damage); }
-        else if (ev.actor === "right") { rx = 0.52; lx = 0.42; rPose = 1; if (ev.damage) lHp = Math.max(0, lHp - ev.damage); }
-        burst(W * 0.5, H * 0.55, 14, "#ffd23d"); burst(W * 0.5, H * 0.55, 10, "#fff");
+      banner = ev.text || ""; bannerT = ev.kind === "finisher" || ev.kind === "ko" ? 2.2 : (ev.kind === "super" ? 1.6 : 1.15);
+      if (ev.slowmo) { timeScale = 0.38; slowT = 0.85; wantZoom = ev.zoom || 1.25; }
+      else if (ev.zoom) wantZoom = ev.zoom;
+      if (ev.kind === "move" || ev.kind === "super" || ev.kind === "finisher" || ev.kind === "smash" || ev.kind === "crit" || ev.kind === "stun") {
+        shake = 10 + ev.intensity * (ev.kind === "finisher" ? 22 : 14);
+        flash = 0.4 + ev.intensity * 0.45;
+        if (ev.actor === "left") { lx = 0.48; rx = 0.58; lPose = 1; if (ev.damage) rHp = Math.max(0, rHp - ev.damage); lMeter = Math.min(100, lMeter + 8); }
+        else if (ev.actor === "right") { rx = 0.52; lx = 0.42; rPose = 1; if (ev.damage) lHp = Math.max(0, lHp - ev.damage); rMeter = Math.min(100, rMeter + 8); }
+        burst(W * 0.5, H * 0.55, ev.kind === "finisher" ? 28 : 14, ev.kind === "finisher" ? "#ffd23d" : "#e8c070");
+        burst(W * 0.5, H * 0.55, 10, "#fff");
         setHp();
-      } else if (ev.kind === "clash" || ev.kind === "hornlock") {
+      } else if (ev.kind === "clash" || ev.kind === "hornlock" || ev.kind === "lockup") {
         shake = 8 + ev.intensity * 10; flash = 0.3; lx = 0.46; rx = 0.54; lPose = rPose = 0.8;
         burst(W * 0.5, H * 0.52, 12, "#e8c070");
-      } else if (ev.kind === "shove") {
+      } else if (ev.kind === "shove" || ev.kind === "reversal") {
         shake = 6;
         if (ev.actor === "left") { lx = 0.5; rx = 0.62; if (ev.damage) rHp = Math.max(0, rHp - ev.damage); }
         else { rx = 0.5; lx = 0.38; if (ev.damage) lHp = Math.max(0, lHp - ev.damage); }
         burst(W * 0.5, H * 0.62, 8, "#c4a070"); setHp();
-      } else if (ev.kind === "ko") {
-        shake = 16; flash = 0.7; bannerT = 2.2; burst(W * 0.5, H * 0.5, 28, "#ffd23d");
+      } else if (ev.kind === "nearfall" || ev.kind === "pin") {
+        shake = 4; bannerT = 1.4; lPose = rPose = 0.3;
+      } else if (ev.kind === "kickout") {
+        shake = 12; flash = 0.5; timeScale = 1; wantZoom = 1;
+        burst(W * 0.5, H * 0.58, 16, "#fff");
+      } else if (ev.kind === "ko" || ev.kind === "celebrate") {
+        shake = 16; flash = 0.7; bannerT = 2.2; wantZoom = 1.1;
+        burst(W * 0.5, H * 0.5, 28, "#ffd23d");
         lHp = fight.leftHpEnd; rHp = fight.rightHpEnd; setHp();
-      } else if (ev.kind === "approach") { lx = 0.3; rx = 0.7; }
+      } else if (ev.kind === "entrance") {
+        if (ev.actor === "left") lx = 0.18;
+        if (ev.actor === "right") rx = 0.82;
+      } else if (ev.kind === "approach" || ev.kind === "bell") { lx = 0.32; rx = 0.68; }
     };
     const drawSheep = (s, x, y, facing, pose, scale) => {
       const B = BREEDS[s.breed];
@@ -664,8 +765,13 @@
     };
     const tick = (now) => {
       if (stopped) return;
-      const dt = Math.min(0.05, (now - last) / 1000) * 1.15;
-      last = now; t += dt;
+      let dt = Math.min(0.05, (now - last) / 1000) * 1.15;
+      last = now;
+      if (slowT > 0) { slowT -= dt; if (slowT <= 0) timeScale = 1; }
+      dt *= timeScale;
+      t += dt;
+      zoom += ((wantZoom || 1) - zoom) * Math.min(1, dt * 4);
+      if (!slowT) wantZoom += (1 - wantZoom) * Math.min(1, dt * 1.6);
       while (ei < fight.events.length && fight.events[ei].t <= t) {
         applyEvent(fight.events[ei]); ei++;
       }
@@ -685,24 +791,31 @@
       const shx = (Math.random() - 0.5) * shake;
       const shy = (Math.random() - 0.5) * shake;
       ctx.clearRect(0, 0, W, H);
-      // arena bg
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#1a2840"); g.addColorStop(0.55, "#243018"); g.addColorStop(1, "#3a4a22");
+      g.addColorStop(0, "#121018"); g.addColorStop(0.45, "#1c2418"); g.addColorStop(1, "#2a3218");
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      // stands
-      ctx.fillStyle = "rgba(0,0,0,0.25)";
-      ctx.fillRect(0, 0, W, H * 0.22);
-      ctx.fillStyle = "rgba(232,168,56,0.08)";
-      for (let i = 0; i < 12; i++) ctx.fillRect(i * (W / 12) + 4, 8, W / 14, H * 0.14);
-      // ring
-      ctx.save(); ctx.translate(shx, shy);
-      ctx.fillStyle = "#6b8f3a";
-      ctx.beginPath(); ctx.ellipse(W * 0.5, H * 0.72, W * 0.42, H * 0.14, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.ellipse(W * 0.5, H * 0.72, W * 0.42, H * 0.14, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(0, 0, W, H * 0.24);
+      for (let i = 0; i < 28; i++) {
+        const cx = (i * 47 + t * 8) % W;
+        const cy = 10 + (i % 4) * 14 + Math.sin(t * 3 + i) * 2;
+        ctx.fillStyle = i % 3 ? "rgba(232,168,56,0.18)" : "rgba(255,255,255,0.12)";
+        ctx.fillRect(cx, cy, 7, 9);
+      }
+      ctx.save();
+      ctx.translate(W / 2 + shx, H / 2 + shy);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-W / 2, -H / 2);
+      ctx.fillStyle = "#5a4a32";
+      ctx.fillRect(W * 0.12, H * 0.58, W * 0.76, H * 0.22);
+      ctx.strokeStyle = "rgba(243,238,230,0.35)"; ctx.lineWidth = 4;
+      ctx.strokeRect(W * 0.12, H * 0.58, W * 0.76, H * 0.22);
+      ctx.strokeStyle = "rgba(196,92,42,0.7)"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(W * 0.14, H * 0.62); ctx.lineTo(W * 0.86, H * 0.62); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(W * 0.14, H * 0.68); ctx.lineTo(W * 0.86, H * 0.68); ctx.stroke();
       const baseY = H * 0.62;
-      drawSheep(fight.left, W * lx, baseY, 1, lPose, 1.05);
-      drawSheep(fight.right, W * rx, baseY, -1, rPose, 1.05);
+      drawSheep(fight.left, W * lx, baseY, 1, lPose, 1.08);
+      drawSheep(fight.right, W * rx, baseY, -1, rPose, 1.08);
       particles.forEach((p) => {
         ctx.globalAlpha = Math.max(0, p.life);
         ctx.fillStyle = p.c;
@@ -715,12 +828,15 @@
         ctx.fillRect(0, 0, W, H);
       }
       if (bannerT > 0 && banner) {
-        ctx.fillStyle = "rgba(0,0,0,0.45)";
-        ctx.fillRect(0, H * 0.28, W, 40);
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 16px system-ui,sans-serif";
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(0, H * 0.22, W, 54);
+        ctx.fillStyle = "#e8a838";
+        ctx.font = "800 11px system-ui,sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(banner, W / 2, H * 0.28 + 26);
+        ctx.fillText(fight.requiredRare ? "CHAMPIONSHIP" : "LIVE FROM THE PADDOCK", W / 2, H * 0.22 + 16);
+        ctx.fillStyle = "#fff";
+        ctx.font = "900 20px system-ui,sans-serif";
+        ctx.fillText(banner, W / 2, H * 0.22 + 42);
       }
       if (ei >= fight.events.length && bannerT <= 0) {
         setTimeout(() => { if (!stopped) finishFight(); }, 400);
@@ -771,12 +887,28 @@
     ).join("") + "</div>";
   }
 
+  function renderMoveLocker() {
+    const active = activeSheep();
+    if (!active) return "";
+    const fights = save.totalFights || 0;
+    let html = '<div class="w-section-lab">Move locker</div>';
+    ["power","super","rare"].forEach((tier) => {
+      html += '<div class="w-muted" style="font-weight:800;margin:8px 0 4px;letter-spacing:.08em;text-transform:uppercase;font-size:10px">' + tier + "</div>";
+      MOVES.filter((m) => m.tier === tier).forEach((m) => {
+        const on = isMoveUnlocked(m, fights, active.wins, active.stage, active.breed);
+        html += '<div class="w-list-btn" style="cursor:default;opacity:' + (on ? "1" : ".55") + '">' +
+          '<span style="flex:1;min-width:0"><b>' + esc(m.name) + "</b><br><span class='w-muted'>" + (on ? esc(m.callout) : esc(lockReason(m))) + "</span></span>" +
+          '<span style="font-weight:900;color:' + (on ? "var(--w-primary)" : "var(--w-muted)") + '">' + (on ? "OWNED" : "LOCKED") + "</span></div>";
+      });
+    });
+    return html;
+  }
   function renderHome() {
     const active = activeSheep();
     return (
       '<section class="w-hero"><div style="font-size:36px">🐏💥🐏</div>' +
       "<h1>SHEEP WRESTLING</h1>" +
-      "<p>Raise lambs into God Rams. Feed them. Train them. Throw them in the ring and watch them <b style='color:var(--w-primary)'>smash head-to-head</b>. You don't steer the fight — the strongest sheep wins.</p>" +
+      "<p>Raise lambs into God Rams. Named power moves, supers, and <b style='color:var(--w-primary)'>rare finishers</b> unlock as you fight. Championship rams will not stay down unless you hit a rare.</p>" +
       '<div class="w-row">' +
       '<button type="button" class="w-btn" data-go="arena">Enter Arena</button>' +
       '<button type="button" class="w-btn ghost" data-go="challenge">Friend Code</button>' +
@@ -793,8 +925,10 @@
       "<li>Start with a lamb. Feed & train until max level.</li>" +
       "<li>Promote → Yearling → Ram → Prize → God → Legend.</li>" +
       "<li>Buy hell-good breeds when you can afford them.</li>" +
-      "<li>Arena AI or friend WOOF codes — pure auto smash.</li>" +
-      "</ol></div>"
+      "<li>Arena AI or friend WOOF codes — theatrical smash with named moves.</li>" +
+      "<li>Rare finishers unlock by career bouts. Championship belts require them.</li>" +
+      "</ol></div>" +
+      renderMoveLocker()
     );
   }
   function renderStable() {
@@ -874,15 +1008,15 @@
     const active = activeSheep();
     let html =
       '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px">' +
-      "<div><h2 class='w-h2'>Arena</h2><p class='w-muted'>Sit back. They smash. Strongest wins.</p></div>" +
+      "<div><h2 class='w-h2'>Arena</h2><p class='w-muted'>Lights. Entrances. Named finishers.</p></div>" +
       '<button type="button" class="w-btn sm" data-go="challenge">Codes</button></div>';
     if (active) html += sheepCardHtml(active, true);
     arenaList.forEach((o) => {
       html +=
         '<button type="button" class="w-list-btn" data-fight="' + o.id + '">' +
         '<div class="w-av" style="background:rgba(196,92,42,.25)">' + stageDef(o.sheep.stage).emoji + "</div>" +
-        '<span style="flex:1;min-width:0"><b>' + esc(o.title) + "</b><br><span class='w-muted'>" + esc(o.blurb) + "</span>" +
-        "<br><span class='w-muted'>vs " + esc(o.sheep.name) + " · ⚔️ " + powerRating(o.sheep) + " · Prize $" + o.prize + "</span></span>" +
+        '<span style="flex:1;min-width:0"><b>' + esc(o.title) + (o.requireRare ? " · RARE" : "") + "</b><br><span class='w-muted'>" + esc(o.blurb) + "</span>" +
+        "<br><span class='w-muted'>vs " + esc(o.sheep.name) + " · ⚔️ " + powerRating(o.sheep) + " · Prize $" + o.prize + (o.locked ? " · LOCKED" : "") + "</span></span>" +
         '<span class="go">›</span></button>';
     });
     return html;

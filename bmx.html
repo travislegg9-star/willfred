@@ -113,10 +113,26 @@
       color: var(--muted); font-size: 12px; font-weight: 700;
       pointer-events: none;
     }
+    .touch.force-off { display: none !important; }
+    .touch.force-on { display: flex !important; }
     @media (min-width: 900px) {
       .touch { display: none; }
+      .touch.force-on { display: flex !important; }
       .hint { bottom: 24px; }
     }
+    .gear {
+      pointer-events: auto;
+      margin-left: 8px;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px 12px; font-weight: 800; font-size: 13px;
+      color: var(--ink); cursor: pointer;
+    }
+    .seg { display: flex; gap: 6px; margin: 10px 0 4px; }
+    .seg button {
+      flex: 1; border: 1px solid var(--line); background: transparent; color: var(--muted);
+      border-radius: 12px; padding: 10px 6px; font-weight: 800; font-size: 12px; cursor: pointer;
+    }
+    .seg button.on { background: rgba(255,107,44,.22); color: var(--ink); border-color: rgba(255,107,44,.5); }
 
     .overlay {
       position: fixed; inset: 0; z-index: 30;
@@ -159,7 +175,10 @@
 
   <div class="hud">
     <div class="top">
-      <a class="back" href="index.html">‹ Games</a>
+      <div style="display:flex;align-items:center;gap:8px">
+        <a class="back" href="index.html">‹ Games</a>
+        <button type="button" class="gear" id="btnSettings">Controls</button>
+      </div>
       <div class="score-box">
         <div class="lab">Run score</div>
         <div class="val" id="hudScore">0</div>
@@ -202,6 +221,7 @@
       <div class="best" id="bestLabel">Best: 0</div>
       <button type="button" class="cta" id="btnPlay">DROP IN</button>
       <button type="button" class="cta ghost" id="btnHow">Got it — let's shred</button>
+      <button type="button" class="cta ghost" id="btnSettings2">On-screen controls</button>
     </div>
   </div>
 
@@ -234,11 +254,25 @@
     </div>
   </div>
 
-  <script src="bmx.js?v=1"></script>
+  
+  <div class="overlay hidden" id="settingsOverlay">
+    <div class="panel">
+      <h1>SCREEN <span>CONTROLS</span></h1>
+      <p>Show the on-screen pads. Auto hides them on a keyboard and shows them on a phone.</p>
+      <div class="seg">
+        <button type="button" data-ctrl="auto">Auto</button>
+        <button type="button" data-ctrl="always">Always</button>
+        <button type="button" data-ctrl="off">Off</button>
+      </div>
+      <button type="button" class="cta" id="btnSettingsClose">Done</button>
+    </div>
+  </div>
+
+  <script src="bmx.js?v=58"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js?v=57').catch(function () {});
+        navigator.serviceWorker.register('sw.js?v=58').catch(function () {});
       });
     }
   </script>

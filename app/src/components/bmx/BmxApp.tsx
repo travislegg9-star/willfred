@@ -14,8 +14,10 @@ import {
 import { cn } from "@/lib/utils";
 
 type Phase = "title" | "playing" | "paused" | "crashed" | "finished";
+type ControlMode = "auto" | "always" | "off";
 
 const BEST_KEY = "woofa_bmx_best";
+const CTRL_KEY = "woofa_bmx_controls";
 const GAME_CODES = new Set([
   "ArrowLeft",
   "ArrowRight",
@@ -62,6 +64,24 @@ function saveBest(n: number) {
   }
 }
 
+function loadCtrl(): ControlMode {
+  try {
+    const v = localStorage.getItem(CTRL_KEY);
+    if (v === "always" || v === "off" || v === "auto") return v;
+  } catch {
+    /* ignore */
+  }
+  return "auto";
+}
+
+function saveCtrl(mode: ControlMode) {
+  try {
+    localStorage.setItem(CTRL_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function BmxApp() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const riderRef = useRef<Rider>(defaultRider());
@@ -78,9 +98,17 @@ export function BmxApp() {
   const [speed, setSpeed] = useState(0);
   const [air, setAir] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [controls, setControls] = useState<ControlMode>("auto");
+  const [narrow, setNarrow] = useState(false);
 
   useEffect(() => {
     setBest(loadBest());
+    setControls(loadCtrl());
+    const mq = window.matchMedia("(max-width: 639px), (pointer: coarse)");
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   const setPhaseBoth = useCallback((p: Phase) => {
@@ -292,6 +320,13 @@ export function BmxApp() {
                     <b className="text-fg">D</b> gas · <b className="text-fg">A</b> brake · <b className="text-fg">Space</b> jump · <b className="text-fg">W/S</b> flip · <b className="text-fg">T</b> trick
                   </p>
                   <p className="mt-2 text-xs text-subtle">Best {best}</p>
+                  <ControlToggle
+                    value={controls}
+                    onChange={(m) => {
+                      setControls(m);
+                      saveCtrl(m);
+                    }}
+                  />
                   <Button className="mt-6" size="lg" onClick={resetRun}>
                     Drop in
                   </Button>
@@ -300,6 +335,13 @@ export function BmxApp() {
               {phase === "paused" && (
                 <>
                   <h2 className="font-display text-4xl font-semibold">Paused</h2>
+                  <ControlToggle
+                    value={controls}
+                    onChange={(m) => {
+                      setControls(m);
+                      saveCtrl(m);
+                    }}
+                  />
                   <div className="mt-6 flex flex-wrap gap-2">
                     <Button size="lg" onClick={() => setPhaseBoth("playing")}>
                       Resume
@@ -347,7 +389,12 @@ export function BmxApp() {
           >
             <Pause className="size-4" />
           </button>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-8 sm:hidden">
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-8",
+              (controls === "off" || (controls === "auto" && !narrow)) && "hidden",
+            )}
+          >
             <div className="pointer-events-auto flex gap-2">
               <Pad label="Brake" {...hold("brake")} />
               <Pad label="Gas" accent {...hold("gas")} />
@@ -369,6 +416,35 @@ export function BmxApp() {
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+function ControlToggle({
+  value,
+  onChange,
+}: {
+  value: ControlMode;
+  onChange: (m: ControlMode) => void;
+}) {
+  return (
+    <div className="mt-5">
+      <p className="text-xs font-semibold tracking-wide text-muted uppercase">On-screen controls</p>
+      <div className="mt-2 grid grid-cols-3 gap-1 rounded-full border border-border bg-bg-elevated p-1">
+        {(["auto", "always", "off"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => onChange(m)}
+            className={cn(
+              "rounded-full px-2 py-2 text-xs font-semibold capitalize",
+              value === m ? "bg-accent text-accent-fg" : "text-muted",
+            )}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

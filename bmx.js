@@ -219,15 +219,48 @@
   const FIXED = 1 / 120;
   let best = 0;
 
+  let controls = "auto";
   try {
-    best = Number(JSON.parse(localStorage.getItem(SAVE_KEY) || "{}").best) || 0;
+    const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+    best = Number(saved.best) || 0;
+    if (saved.controls === "always" || saved.controls === "off" || saved.controls === "auto") controls = saved.controls;
   } catch { best = 0; }
 
+  function persistSave() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ best: best, controls: controls })); } catch { /* */ }
+  }
   function saveBest(s) {
     if (s > best) {
       best = s;
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify({ best })); } catch { /* */ }
+      persistSave();
     }
+  }
+  function applyControls() {
+    const pad = document.querySelector(".touch");
+    if (!pad) return;
+    pad.classList.remove("force-on", "force-off");
+    if (controls === "always") pad.classList.add("force-on");
+    else if (controls === "off") pad.classList.add("force-off");
+    else {
+      const coarse = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+      pad.classList.toggle("force-on", !!coarse);
+      pad.classList.toggle("force-off", !coarse);
+    }
+    document.querySelectorAll("[data-ctrl]").forEach((b) => {
+      b.classList.toggle("on", b.getAttribute("data-ctrl") === controls);
+    });
+  }
+  function setControls(mode) {
+    controls = mode;
+    persistSave();
+    applyControls();
+  }
+  function openSettings() {
+    document.getElementById("settingsOverlay").classList.remove("hidden");
+    applyControls();
+  }
+  function closeSettings() {
+    document.getElementById("settingsOverlay").classList.add("hidden");
   }
 
   // ─── Simulation ──────────────────────────────────────────────────────
@@ -518,6 +551,17 @@
   document.getElementById("btnRetry").onclick = startRun;
   document.getElementById("btnAgain").onclick = startRun;
   document.getElementById("bestLabel").textContent = "Best: " + Math.floor(best);
+  const s1 = document.getElementById("btnSettings");
+  const s2 = document.getElementById("btnSettings2");
+  const sClose = document.getElementById("btnSettingsClose");
+  if (s1) s1.onclick = openSettings;
+  if (s2) s2.onclick = openSettings;
+  if (sClose) sClose.onclick = closeSettings;
+  document.querySelectorAll("[data-ctrl]").forEach((b) => {
+    b.onclick = () => setControls(b.getAttribute("data-ctrl"));
+  });
+  applyControls();
+  window.addEventListener("resize", applyControls);
 
   // ─── Render ──────────────────────────────────────────────────────────
   function resize() {
