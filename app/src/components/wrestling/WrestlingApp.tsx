@@ -443,8 +443,8 @@ function SheepCard({ sheep, selected, onClick }: { sheep: Sheep; selected?: bool
   const st = stageDef(sheep.stage);
   const inner = (
     <div className="flex gap-3">
-      <div className="size-16 shrink-0 overflow-hidden rounded-md bg-bg-subtle">
-        <SheepPortrait sheep={sheep} className="size-16" />
+      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-[#1a1814]">
+        <SheepPortrait sheep={sheep} className="h-16 w-16" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2">
@@ -887,35 +887,32 @@ function Arena({
 }) {
   void save;
   return (
-    <div className="grid gap-6 lg:grid-cols-12">
-      <div className="lg:col-span-4">
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <h2 className="font-display text-2xl font-semibold">Arena</h2>
-            <p className="text-sm text-muted">Strongest wins — unless a rare is required.</p>
-          </div>
-        </div>
-        {active && <SheepCard sheep={active} />}
-        <Button variant="secondary" className="mt-3 w-full" onClick={() => go("challenge")}>
-          Friend codes
-        </Button>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+      <div>
+        <h2 className="font-display text-2xl font-semibold">Arena</h2>
+        <p className="text-sm text-muted">Lights, named moves, rare finishers. Tap a bout.</p>
       </div>
-      <div className="grid gap-2 lg:col-span-8">
+      {active && <SheepCard sheep={active} />}
+      <Button variant="secondary" className="w-full" onClick={() => go("challenge")}>
+        Friend codes
+      </Button>
+      <div className="flex flex-col gap-3">
         {arena.map((o) => (
           <button
             key={o.id}
             type="button"
-            className="flex w-full items-center gap-4 rounded-xl border border-border bg-bg-elevated p-4 text-left hover:border-border-strong"
+            className="flex w-full shrink-0 items-stretch gap-3 overflow-hidden rounded-xl border border-border bg-bg-elevated p-3 text-left"
             onClick={() => onFight(o)}
           >
-            <div className="size-14 shrink-0 overflow-hidden rounded-md bg-bg-subtle">
-              <SheepPortrait sheep={o.sheep} className="size-14" />
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-[#1a1814]">
+              <SheepPortrait sheep={o.sheep} className="h-16 w-16" />
             </div>
-            <span className="min-w-0 flex-1">
-              <b className="font-semibold">{o.title}</b>
-              {o.requireRare ? <span className="ml-2 text-xs font-semibold text-accent">Rare finisher</span> : null}
-              {o.championship ? <span className="ml-2 text-xs font-semibold text-fg">Belt</span> : null}
-              <span className="mt-1 block text-sm text-muted">{o.blurb}</span>
+            <span className="min-w-0 flex-1 py-0.5">
+              <span className="block font-semibold text-fg">
+                {o.title}
+                {o.requireRare ? <span className="ml-2 text-xs font-semibold text-accent">Rare</span> : null}
+              </span>
+              <span className="mt-1 block text-sm leading-snug text-muted">{o.blurb}</span>
               <span className="mt-1 block text-xs text-subtle">
                 vs {o.sheep.name} · {powerRating(o.sheep)} · Prize {o.prize}
               </span>

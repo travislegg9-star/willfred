@@ -179,7 +179,7 @@
     let t = 0;
     const push = (e) => events.push(Object.assign({ t: t }, e));
     push({ kind: "lights", actor: "both", intensity: 0.4, text: "Lights down…" });
-    t += 1.0;
+    t += 0.35;
     push({ kind: "entrance", actor: "left", intensity: 0.6, text: left.displayName + " walks." });
     t += 1.6;
     push({ kind: "entrance", actor: "right", intensity: 0.6, text: "And his opponent — " + right.displayName + "!" });
@@ -792,10 +792,10 @@
       const shy = (Math.random() - 0.5) * shake;
       ctx.clearRect(0, 0, W, H);
       const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#121018"); g.addColorStop(0.45, "#1c2418"); g.addColorStop(1, "#2a3218");
+      g.addColorStop(0, "#1a1c24"); g.addColorStop(0.4, "#243018"); g.addColorStop(1, "#3a3420");
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.fillRect(0, 0, W, H * 0.24);
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.fillRect(0, 0, W, H * 0.22);
       for (let i = 0; i < 28; i++) {
         const cx = (i * 47 + t * 8) % W;
         const cy = 10 + (i % 4) * 14 + Math.sin(t * 3 + i) * 2;

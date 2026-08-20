@@ -6,7 +6,25 @@ import { cn } from "@/lib/utils";
 export function SheepPortrait({ sheep, className }: { sheep: Sheep; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (ref.current) paintPortrait(ref.current, sheep);
+    const el = ref.current;
+    if (!el) return;
+    const paint = () => paintPortrait(el, sheep);
+    paint();
+    const id = requestAnimationFrame(paint);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(paint) : null;
+    ro?.observe(el);
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
   }, [sheep]);
-  return <canvas ref={ref} className={cn("block size-14", className)} aria-hidden />;
+  return (
+    <canvas
+      ref={ref}
+      width={128}
+      height={128}
+      className={cn("block size-full bg-[#1a1814]", className)}
+      aria-hidden
+    />
+  );
 }

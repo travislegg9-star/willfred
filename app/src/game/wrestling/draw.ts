@@ -266,13 +266,13 @@ export function playArena(
 
 function drawBackdrop(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, spot: number) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#07080c");
-  g.addColorStop(0.45, "#12151c");
-  g.addColorStop(1, "#1a1712");
+  g.addColorStop(0, "#14161c");
+  g.addColorStop(0.42, "#1c2018");
+  g.addColorStop(1, "#2a2618");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  const rg = ctx.createRadialGradient(W * 0.5, H * 0.18, 10, W * 0.5, H * 0.55, H * 0.7);
-  rg.addColorStop(0, `rgba(244,239,228,${0.08 + spot * 0.12})`);
+  const rg = ctx.createRadialGradient(W * 0.5, H * 0.22, 8, W * 0.5, H * 0.58, H * 0.72);
+  rg.addColorStop(0, `rgba(244,239,228,${0.16 + spot * 0.18})`);
   rg.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = rg;
   ctx.fillRect(0, 0, W, H);
@@ -506,14 +506,19 @@ function drawBanner(ctx: CanvasRenderingContext2D, W: number, H: number, text: s
 export function paintPortrait(canvas: HTMLCanvasElement, sheep: Sheep) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  const cssW = canvas.clientWidth || 72;
-  const cssH = canvas.clientHeight || 72;
+  const cssW = Math.max(48, canvas.clientWidth || 72);
+  const cssH = Math.max(48, canvas.clientHeight || 72);
   const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
   canvas.width = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.fillStyle = "#1a1814";
+  ctx.fillRect(0, 0, cssW, cssH);
+  ctx.fillStyle = "#2a2620";
+  ctx.beginPath();
+  ctx.ellipse(cssW * 0.5, cssH * 0.78, cssW * 0.38, cssH * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
   const vis: FighterVis = { x: 0, y: 0, pose: "idle", poseT: 0.35, facing: 1, squash: 1, flash: 0 };
-  const sc = Math.min(cssW, cssH) / 58 / Math.max(0.7, stageDef(sheep.stage).size);
-  drawSheep(ctx, sheep, cssW * 0.48, cssH * 0.78, vis, sc);
+  const sc = (Math.min(cssW, cssH) / 46) / Math.max(0.7, stageDef(sheep.stage).size);
+  drawSheep(ctx, sheep, cssW * 0.46, cssH * 0.74, vis, sc);
 }
