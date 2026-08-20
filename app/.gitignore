@@ -1,0 +1,8 @@
+node_modules
+.tanstack
+.vercel
+.output
+dist
+screenshots
+*.local
+.env

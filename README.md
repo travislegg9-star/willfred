@@ -69,3 +69,8 @@ Share the URL with friends; on iPhone: Share → **Add to Home Screen**.
 - A shared friends leaderboard — *this* is when a small Supabase table would earn its keep.
 - More unlockable balls, capes, and scenes; a photo of the real Woofa on the start screen.
 - Real rasterized PNG icons if you want the crispest install badge on older Androids.
+
+
+## Next version (2026)
+
+Sheep Wrestling and Stick BMX now live in [`app/`](app/) — theatrical career mode, rare finishers, BMX on-screen control toggle. Original vanilla games stay in this folder.
