@@ -271,8 +271,13 @@
   <script src="bmx.js?v=60"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js?v=60').catch(function () {});
+      navigator.serviceWorker.getRegistrations().then(function (r) {
+        r.forEach(function (x) { x.unregister(); });
+      });
+    }
+    if (window.caches) {
+      caches.keys().then(function (keys) {
+        keys.forEach(function (k) { caches.delete(k); });
       });
     }
   </script>
