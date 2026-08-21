@@ -1,5 +1,5 @@
 /* Woofa's Games — network-first for HTML/JS so updates aren't stuck offline. */
-const CACHE = 'woofa-games-v59';
+const CACHE = 'woofa-games-v60';
 const ASSETS = [
   './',
   './index.html',

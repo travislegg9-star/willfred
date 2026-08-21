@@ -654,8 +654,45 @@
     res.classList.add("on");
   }
 
-  // ─── Arena canvas ───────────────────────────────────────────────────
+  function ramSrc(breed, pose) {
+    if (pose === "down" || pose === "pin" || pose === "stunned") return "art/wrestle/ram-down.png";
+    if (pose === "charge" || pose === "walk" || pose === "strike" || pose === "whip") return "art/wrestle/ram-charge.png";
+    if (pose === "slam" || pose === "lift" || pose === "aerial" || pose === "roar" || pose === "celebrate") return "art/wrestle/ram-slam.png";
+    if (breed === "golden") return "art/wrestle/ram-golden.png";
+    if (breed === "midnight" || breed === "thunderhead") return "art/wrestle/ram-midnight.png";
+    if (breed === "suffolk" || breed === "blackface") return "art/wrestle/ram-charge.png";
+    return "art/wrestle/ram-idle.png";
+  }
+  const ART = {};
+  function loadArt() {
+    const urls = [
+      "art/wrestle/ring.jpg","art/wrestle/ram-idle.png","art/wrestle/ram-charge.png",
+      "art/wrestle/ram-slam.png","art/wrestle/ram-down.png","art/wrestle/ram-golden.png",
+      "art/wrestle/ram-midnight.png"
+    ];
+    urls.forEach(function (u) {
+      if (ART[u]) return;
+      const img = new Image();
+      img.src = u;
+      ART[u] = img;
+    });
+  }
+  function rps(p, a) {
+    if (p === a) return "clash";
+    if ((p === "strike" && a === "charge") || (p === "charge" && a === "grapple") || (p === "grapple" && a === "strike")) return "win";
+    return "lose";
+  }
+  function gradeAt(t, a, b) {
+    const mid = (a + b) / 2;
+    if (Math.abs(t - mid) < 0.045) return "perfect";
+    if (t >= a && t <= b) return "good";
+    if (t >= a - 0.12 && t <= b + 0.12) return "ok";
+    return "miss";
+  }
+  const GMUL = { miss: 0.35, ok: 0.75, good: 1, perfect: 1.35 };
+
   function playFight(fight) {
+    loadArt();
     document.getElementById("wApp").classList.add("fight-mode");
     document.getElementById("wFight").classList.add("on");
     document.getElementById("wNav").classList.add("hidden");
@@ -663,192 +700,393 @@
     document.getElementById("wRName").textContent = fight.right.name;
     const titleEl = document.getElementById("wFightTitle");
     if (titleEl) titleEl.textContent = fight.title || (fight.requiredRare ? "TITLE" : "LIVE");
+    const pickRow = document.getElementById("wPickRow");
+    const skipBtn = document.getElementById("wSkipFight");
     const lMax = maxHp(fight.left), rMax = maxHp(fight.right);
-    let lHp = lMax, rHp = rMax, lMeter = 20, rMeter = 16;
-    const setHp = () => {
-      document.getElementById("wLHp").style.width = Math.max(0, (lHp / lMax) * 100) + "%";
-      document.getElementById("wRHp").style.width = Math.max(0, (rHp / rMax) * 100) + "%";
+    const L = effectiveStats(fight.left), R = effectiveStats(fight.right);
+    const m = {
+      phase: "entrance", t: 0, entranceT: 0, round: 0,
+      lHp: lMax, rHp: rMax, lMeter: 18, rMeter: 12, lStun: 0, rStun: 0,
+      lx: -0.1, rx: 1.1, lPose: "walk", rPose: "walk",
+      banner: fight.left.name + " enters", callout: "",
+      timing: 0, pinNeedle: 0, pinStep: 0, grade: null,
+      playerPick: null, aiPick: null, lastMove: null, usedRare: false,
+      trauma: 0, flash: 0, zoom: 1, slow: 1, particles: [], dmg: null, animT: 0, winner: null
+    };
+    const setHp = function () {
+      document.getElementById("wLHp").style.width = Math.max(0, (m.lHp / lMax) * 100) + "%";
+      document.getElementById("wRHp").style.width = Math.max(0, (m.rHp / rMax) * 100) + "%";
       const lm = document.getElementById("wLMeter");
       const rm = document.getElementById("wRMeter");
-      if (lm) lm.style.width = Math.max(0, Math.min(100, lMeter)) + "%";
-      if (rm) rm.style.width = Math.max(0, Math.min(100, rMeter)) + "%";
+      if (lm) lm.style.width = Math.max(0, Math.min(100, m.lMeter)) + "%";
+      if (rm) rm.style.width = Math.max(0, Math.min(100, m.rMeter)) + "%";
     };
     setHp();
+    function syncUi() {
+      if (pickRow) pickRow.style.display = m.phase === "pick" ? "grid" : "none";
+      var pick2 = document.getElementById("wPickRow2");
+      if (pick2) pick2.style.display = m.phase === "pick" ? "grid" : "none";
+      if (skipBtn) {
+        skipBtn.textContent = m.phase === "timing" || m.phase === "pin" ? "Tap the ring ›" : (m.phase === "over" ? "Continue ›" : "Skip ›");
+        skipBtn.style.display = m.phase === "pick" ? "none" : "block";
+      }
+      const fin = document.getElementById("wFinisher");
+      const pin = document.getElementById("wPin");
+      if (fin) {
+        const ready = m.lMeter >= 80 && m.rHp / rMax < 0.42;
+        fin.disabled = !ready;
+        fin.textContent = ready ? "FINISHER" : ("Super " + Math.round(m.lMeter));
+      }
+      if (pin) pin.disabled = !(m.rHp / rMax < 0.22 || m.rStun > 0);
+    }
+    syncUi();
 
     const canvas = document.getElementById("wArena");
     const ctx = canvas.getContext("2d");
-    let W = 0, H = 0, dpr = 1, raf = 0, stopped = false;
-    const resize = () => {
+    let W = 0, H = 0, raf = 0, stopped = false;
+    const resize = function () {
       const parent = canvas.parentElement;
       W = parent.clientWidth || 360;
       H = parent.clientHeight || 420;
-      dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.floor(W * dpr);
       canvas.height = Math.floor(H * dpr);
-      canvas.style.width = W + "px";
-      canvas.style.height = H + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
 
-    let t = 0, last = performance.now();
-    let shake = 0, flash = 0, banner = "", bannerT = 0, ei = 0;
-    let lx = 0.34, rx = 0.66, lPose = 0, rPose = 0;
-    const particles = [];
-    const burst = (x, y, n, col) => {
-      for (let i = 0; i < n; i++) {
-        particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 8, vy: -Math.random() * 6 - 1, life: 0.6 + Math.random() * 0.5, c: col, r: 2 + Math.random() * 4 });
+    function burst(x, y, n, c) {
+      for (let i = 0; i < n; i++) m.particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 220, vy: -40 - Math.random() * 160, life: 0.4, r: 2 + Math.random() * 4, c: c });
+    }
+    function dmg(side, raw, text) {
+      const d = Math.max(4, Math.round(raw));
+      if (side === "right") { m.rHp = Math.max(0, m.rHp - d); m.dmg = { x: 0.68, y: 0.5, t: String(d), life: 0.7 }; }
+      else { m.lHp = Math.max(0, m.lHp - d); m.dmg = { x: 0.32, y: 0.5, t: String(d), life: 0.7 }; }
+      m.trauma = Math.min(1, m.trauma + Math.min(0.8, d / 40));
+      m.flash = 0.3 + d / 90;
+      m.callout = text;
+      burst(side === "right" ? 0.62 : 0.38, 0.62, 12, "#f4efe4");
+      setHp();
+    }
+    function bestFin() {
+      const pool = unlockedMoves(save.totalFights, fight.left.wins, fight.left.stage, fight.left.breed).filter(function (x) { return x.canFinish && m.lMeter >= (x.meterCost || 80); });
+      const rares = pool.filter(function (x) { return x.tier === "rare"; });
+      if (fight.requiredRare && rares.length) return rares[rares.length - 1];
+      if (rares.length) return rares[rares.length - 1];
+      const supers = pool.filter(function (x) { return x.tier === "super"; });
+      return supers[supers.length - 1] || pool[pool.length - 1] || null;
+    }
+    function powerMove(side, kind) {
+      const sh = side === "left" ? fight.left : fight.right;
+      const fights = side === "left" ? save.totalFights : 12;
+      const pool = unlockedMoves(fights, sh.wins, sh.stage, sh.breed);
+      const kinds = kind === "strike" ? ["strike"] : kind === "charge" ? ["charge"] : ["lock", "slam"];
+      const matches = pool.filter(function (x) { return kinds.indexOf(x.kind) >= 0 && x.tier !== "rare"; });
+      const powers = matches.filter(function (x) { return x.tier === "power" || x.tier === "super"; });
+      const src = powers.length ? powers : (matches.length ? matches : pool);
+      return src[(Math.random() * src.length) | 0] || MOVES[0];
+    }
+    function aiPick() {
+      const wS = R.power + R.agility * 0.4, wG = R.weight + R.toughness * 0.4, wC = R.charge + R.spirit * 0.3;
+      const r = Math.random() * (wS + wG + wC);
+      if (r < wS) return "strike";
+      if (r < wS + wG) return "grapple";
+      return "charge";
+    }
+    function resolve(g) {
+      const mul = GMUL[g] || 1;
+      m.grade = g;
+      m.phase = "anim";
+      m.animT = 0;
+      m.slow = g === "perfect" || m.playerPick === "finisher" ? 0.45 : 1;
+      m.zoom = m.playerPick === "finisher" ? 1.26 : 1.08;
+      m.round += 1;
+      if (m.playerPick === "finisher" && m.lastMove) {
+        if (g === "miss") {
+          m.banner = "WHIFFED"; m.lPose = "stunned"; m.rPose = "strike";
+          m.lMeter = Math.max(40, m.lMeter - 25);
+          dmg("left", R.power * 0.25, "PUNISHED");
+        } else {
+          const mv = m.lastMove;
+          m.lMeter = 0;
+          if (mv.tier === "rare") m.usedRare = true;
+          fight.finishMoveId = mv.id;
+          m.lPose = "slam"; m.rPose = "down";
+          dmg("right", (L.power * (mv.damageMul || 2) + L.charge * 0.4) * mul * 0.85, mv.callout || mv.name);
+          m.banner = mv.callout || mv.name;
+          m.rStun = 2;
+          if (fight.requiredRare && mv.tier !== "rare" && m.rHp <= 0) {
+            m.rHp = Math.max(8, Math.round(rMax * 0.08));
+            m.banner = fight.right.name + " WILL NOT STAY DOWN";
+          }
+        }
+        setHp(); syncUi(); return;
       }
-    };
-    let timeScale = 1, zoom = 1, wantZoom = 1, slowT = 0;
-    const applyEvent = (ev) => {
-      banner = ev.text || ""; bannerT = ev.kind === "finisher" || ev.kind === "ko" ? 2.2 : (ev.kind === "super" ? 1.6 : 1.15);
-      if (ev.slowmo) { timeScale = 0.38; slowT = 0.85; wantZoom = ev.zoom || 1.25; }
-      else if (ev.zoom) wantZoom = ev.zoom;
-      if (ev.kind === "move" || ev.kind === "super" || ev.kind === "finisher" || ev.kind === "smash" || ev.kind === "crit" || ev.kind === "stun") {
-        shake = 10 + ev.intensity * (ev.kind === "finisher" ? 22 : 14);
-        flash = 0.4 + ev.intensity * 0.45;
-        if (ev.actor === "left") { lx = 0.48; rx = 0.58; lPose = 1; if (ev.damage) rHp = Math.max(0, rHp - ev.damage); lMeter = Math.min(100, lMeter + 8); }
-        else if (ev.actor === "right") { rx = 0.52; lx = 0.42; rPose = 1; if (ev.damage) lHp = Math.max(0, lHp - ev.damage); rMeter = Math.min(100, rMeter + 8); }
-        burst(W * 0.5, H * 0.55, ev.kind === "finisher" ? 28 : 14, ev.kind === "finisher" ? "#ffd23d" : "#e8c070");
-        burst(W * 0.5, H * 0.55, 10, "#fff");
-        setHp();
-      } else if (ev.kind === "clash" || ev.kind === "hornlock" || ev.kind === "lockup") {
-        shake = 8 + ev.intensity * 10; flash = 0.3; lx = 0.46; rx = 0.54; lPose = rPose = 0.8;
-        burst(W * 0.5, H * 0.52, 12, "#e8c070");
-      } else if (ev.kind === "shove" || ev.kind === "reversal") {
-        shake = 6;
-        if (ev.actor === "left") { lx = 0.5; rx = 0.62; if (ev.damage) rHp = Math.max(0, rHp - ev.damage); }
-        else { rx = 0.5; lx = 0.38; if (ev.damage) lHp = Math.max(0, lHp - ev.damage); }
-        burst(W * 0.5, H * 0.62, 8, "#c4a070"); setHp();
-      } else if (ev.kind === "nearfall" || ev.kind === "pin") {
-        shake = 4; bannerT = 1.4; lPose = rPose = 0.3;
-      } else if (ev.kind === "kickout") {
-        shake = 12; flash = 0.5; timeScale = 1; wantZoom = 1;
-        burst(W * 0.5, H * 0.58, 16, "#fff");
-      } else if (ev.kind === "ko" || ev.kind === "celebrate") {
-        shake = 16; flash = 0.7; bannerT = 2.2; wantZoom = 1.1;
-        burst(W * 0.5, H * 0.5, 28, "#ffd23d");
-        lHp = fight.leftHpEnd; rHp = fight.rightHpEnd; setHp();
-      } else if (ev.kind === "entrance") {
-        if (ev.actor === "left") lx = 0.18;
-        if (ev.actor === "right") rx = 0.82;
-      } else if (ev.kind === "approach" || ev.kind === "bell") { lx = 0.32; rx = 0.68; }
-    };
-    const drawSheep = (s, x, y, facing, pose, scale) => {
-      const B = BREEDS[s.breed];
-      const st = stageDef(s.stage);
-      const sc = scale * st.size;
+      const p = m.playerPick || "strike";
+      const a = m.aiPick || "strike";
+      const res = rps(p, a);
+      if (res === "clash" && g !== "perfect") {
+        m.banner = "HORN LOCK"; m.lPose = "lock"; m.rPose = "lock"; m.lx = 0.44; m.rx = 0.56;
+        dmg("right", (4 + L.weight * 0.15) * mul * 0.6, "CLASH");
+        dmg("left", (4 + L.weight * 0.15) * mul * 0.45, "CLASH");
+        m.lMeter = Math.min(100, m.lMeter + 10 * mul);
+        return;
+      }
+      const playerWins = res === "win" || (res === "clash" && g === "perfect") || (res === "lose" && g === "perfect");
+      if (playerWins && res === "lose") {
+        m.banner = "REVERSAL"; m.lPose = "slam"; m.rPose = "down";
+        dmg("right", L.power * 0.55 * mul, "REVERSAL");
+        m.lMeter = Math.min(100, m.lMeter + 18);
+        return;
+      }
+      if (playerWins) {
+        const mv = powerMove("left", p);
+        m.lastMove = mv;
+        const raw = (L.power * mv.damageMul * 0.55 + L.weight * 0.2 + L.charge * 0.15 - R.toughness * 0.12) * mul;
+        m.lPose = p === "charge" ? "charge" : (p === "grapple" ? "lift" : "strike");
+        m.rPose = "stunned";
+        m.lx = p === "charge" ? 0.5 : 0.4; m.rx = 0.66;
+        dmg("right", raw, mv.callout || mv.name);
+        m.banner = mv.callout || mv.name;
+        m.lMeter = Math.min(100, m.lMeter + (mv.meterGain || 12) * mul);
+        if (fight.requiredRare && m.rHp <= 0 && !m.usedRare) {
+          m.rHp = Math.max(8, Math.round(rMax * 0.1));
+          m.banner = fight.right.name + " KICKS OUT";
+        }
+      } else {
+        const mv = powerMove("right", a);
+        const raw = (R.power * mv.damageMul * 0.5 + R.weight * 0.18 - L.toughness * 0.14) * (g === "miss" ? 1.15 : 0.85);
+        m.rPose = a === "charge" ? "charge" : "strike";
+        m.lPose = "stunned";
+        m.rx = 0.5; m.lx = 0.32;
+        dmg("left", raw, mv.callout || mv.name);
+        m.banner = fight.right.name + " — " + (mv.callout || mv.name);
+        m.rMeter = Math.min(100, m.rMeter + 14);
+      }
+      setHp();
+    }
+    function end(winner) {
+      m.phase = "over";
+      m.winner = winner;
+      m.banner = winner === "left" ? fight.left.name + " WINS" : fight.right.name + " WINS";
+      m.lPose = winner === "left" ? "celebrate" : "down";
+      m.rPose = winner === "right" ? "celebrate" : "down";
+      if (winner === "left") m.rHp = 0; else m.lHp = 0;
+      setHp(); syncUi();
+      burst(0.5, 0.45, 28, "#c45c2a");
+      fight.winner = winner;
+      fight.leftHpEnd = m.lHp;
+      fight.rightHpEnd = m.rHp;
+      fight.usedRare = m.usedRare;
+      setTimeout(function () { if (!stopped) finishFight(); }, 1400);
+    }
+    function choose(pick) {
+      if (m.phase !== "pick") return;
+      if (pick === "pin") {
+        if (!(m.rHp / rMax < 0.22 || m.rStun > 0)) return;
+        m.phase = "pin"; m.pinStep = 0; m.pinNeedle = 0; m.banner = "PIN!"; m.lPose = "pin"; m.rPose = "down";
+        syncUi(); return;
+      }
+      if (pick === "finisher") {
+        const fin = bestFin();
+        if (!fin) return;
+        m.playerPick = "finisher"; m.lastMove = fin; m.aiPick = aiPick();
+        m.phase = "timing"; m.timing = 0; m.banner = fin.callout || fin.name; m.callout = "HIT THE WINDOW";
+        syncUi(); return;
+      }
+      m.playerPick = pick; m.aiPick = aiPick();
+      m.phase = "timing"; m.timing = 0; m.banner = pick.toUpperCase(); m.callout = "TAP THE COPPER";
+      syncUi();
+    }
+    function tap() {
+      if (m.phase === "entrance") { m.entranceT = 3.2; return; }
+      if (m.phase === "timing") { resolve(gradeAt(m.timing, 0.6, 0.78)); syncUi(); return; }
+      if (m.phase === "pin") {
+        const g = gradeAt(m.pinNeedle, 0.45, 0.75);
+        if (g === "miss") {
+          m.phase = "anim"; m.animT = 0; m.banner = "KICKOUT!"; m.rPose = "roar"; m.rStun = 0;
+          m.rHp = Math.max(m.rHp, Math.round(rMax * 0.08)); setHp(); syncUi(); return;
+        }
+        m.pinStep += 1; m.pinNeedle = 0;
+        m.banner = m.pinStep === 1 ? "ONE!" : m.pinStep === 2 ? "TWO!" : "THREE!";
+        if (m.pinStep >= 3) {
+          if (fight.requiredRare && !m.usedRare) {
+            m.phase = "anim"; m.animT = 0; m.banner = fight.right.name + " WILL NOT STAY DOWN";
+            m.rHp = Math.max(12, Math.round(rMax * 0.12)); m.rPose = "roar"; m.pinStep = 0; setHp();
+          } else end("left");
+        }
+        syncUi();
+      }
+    }
+
+    canvas.onclick = tap;
+    ["wStrike", "wGrapple", "wCharge", "wFinisher", "wPin"].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.onclick = function (e) {
+        e.stopPropagation();
+        choose(id === "wStrike" ? "strike" : id === "wGrapple" ? "grapple" : id === "wCharge" ? "charge" : id === "wFinisher" ? "finisher" : "pin");
+      };
+    });
+
+    let last = performance.now();
+    function drawRam(sheep, x, y, facing, pose) {
+      const src = ramSrc(sheep.breed, pose);
+      const img = ART[src];
+      const size = stageDef(sheep.stage).size;
+      const w = 220 * size;
       ctx.save();
       ctx.translate(x, y);
-      ctx.scale(facing * sc, sc);
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
-      ctx.beginPath(); ctx.ellipse(0, 18, 28, 8, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = B.body; ctx.lineWidth = 5; ctx.lineCap = "round";
-      const legKick = pose * 8;
-      [[-14, 8, -16, 22], [10, 8, 14 + legKick, 22], [-6, 8, -8, 22], [4, 8, 6 - legKick * 0.5, 22]].forEach((L) => {
-        ctx.beginPath(); ctx.moveTo(L[0], L[1]); ctx.lineTo(L[2], L[3]); ctx.stroke();
-      });
-      ctx.fillStyle = B.wool;
-      ctx.beginPath(); ctx.ellipse(0, -2, 26, 18, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = B.body;
-      ctx.beginPath(); ctx.ellipse(18, -8, 14, 12, 0.2, 0, Math.PI * 2); ctx.fill();
-      // horns for ram+
-      if (stageIndex(s.stage) >= 2) {
-        ctx.strokeStyle = "#c8b090"; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(22, -16); ctx.quadraticCurveTo(30, -28, 18, -30); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(16, -18); ctx.quadraticCurveTo(8, -30, 20, -32); ctx.stroke();
+      ctx.scale(facing, 1);
+      if (img && img.complete && img.naturalWidth) {
+        const s = Math.min(w / img.naturalWidth, w / img.naturalHeight) * 1.1;
+        ctx.drawImage(img, (-img.naturalWidth * s) / 2, -img.naturalHeight * s, img.naturalWidth * s, img.naturalHeight * s);
+      } else {
+        ctx.fillStyle = BREEDS[sheep.breed].wool;
+        ctx.beginPath(); ctx.ellipse(0, -28, 34, 24, 0, 0, Math.PI * 2); ctx.fill();
       }
-      ctx.fillStyle = "#111";
-      ctx.beginPath(); ctx.arc(24, -10, 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
-    };
-    const tick = (now) => {
+    }
+    function tick(now) {
       if (stopped) return;
-      let dt = Math.min(0.05, (now - last) / 1000) * 1.15;
+      let dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      if (slowT > 0) { slowT -= dt; if (slowT <= 0) timeScale = 1; }
-      dt *= timeScale;
-      t += dt;
-      zoom += ((wantZoom || 1) - zoom) * Math.min(1, dt * 4);
-      if (!slowT) wantZoom += (1 - wantZoom) * Math.min(1, dt * 1.6);
-      while (ei < fight.events.length && fight.events[ei].t <= t) {
-        applyEvent(fight.events[ei]); ei++;
+      dt *= m.slow;
+      m.t += dt;
+      m.trauma = Math.max(0, m.trauma - dt * 1.6);
+      m.flash = Math.max(0, m.flash - dt * 2.2);
+      m.zoom += (1 - m.zoom) * (1 - Math.exp(-2.4 * dt));
+      m.slow += (1 - m.slow) * (1 - Math.exp(-2.2 * dt));
+      if (m.dmg) { m.dmg.life -= dt; if (m.dmg.life <= 0) m.dmg = null; }
+      for (let i = m.particles.length - 1; i >= 0; i--) {
+        const p = m.particles[i];
+        p.x += p.vx * dt * 0.01; p.y += p.vy * dt * 0.01; p.vy += 18 * dt; p.life -= dt;
+        if (p.life <= 0) m.particles.splice(i, 1);
       }
-      // ease poses back
-      lx += (0.34 - lx) * Math.min(1, dt * 2.2);
-      rx += (0.66 - rx) * Math.min(1, dt * 2.2);
-      lPose = Math.max(0, lPose - dt * 2.5);
-      rPose = Math.max(0, rPose - dt * 2.5);
-      shake = Math.max(0, shake - dt * 28);
-      flash = Math.max(0, flash - dt * 1.8);
-      bannerT = Math.max(0, bannerT - dt);
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx; p.y += p.vy; p.vy += 12 * dt; p.life -= dt;
-        if (p.life <= 0) particles.splice(i, 1);
+      if (m.phase === "entrance") {
+        m.entranceT += dt;
+        m.lx += (0.32 - m.lx) * (1 - Math.exp(-1.6 * dt));
+        if (m.entranceT > 1.4) {
+          m.rx += (0.68 - m.rx) * (1 - Math.exp(-1.6 * dt));
+          m.banner = "And his opponent — " + fight.right.name + "!";
+        }
+        if (m.entranceT > 3.1) {
+          m.phase = "pick"; m.banner = "DING DING DING"; m.callout = "Pick your attack";
+          m.lPose = "idle"; m.rPose = "idle"; m.lx = 0.34; m.rx = 0.66; syncUi();
+        }
+      } else if (m.phase === "timing") {
+        m.timing += dt / 0.92;
+        if (m.timing >= 1) { m.timing = 1; resolve("miss"); syncUi(); }
+      } else if (m.phase === "pin") {
+        m.pinNeedle += dt / 0.85;
+        if (m.pinNeedle >= 1) {
+          m.pinNeedle = 0; m.phase = "anim"; m.animT = 0; m.banner = "KICKOUT!"; m.rPose = "roar"; m.rStun = 0; syncUi();
+        }
+      } else if (m.phase === "anim") {
+        m.animT += dt;
+        if (m.animT > 0.55) {
+          m.lx += (0.34 - m.lx) * (1 - Math.exp(-4 * dt));
+          m.rx += (0.66 - m.rx) * (1 - Math.exp(-4 * dt));
+        }
+        if (m.animT > 1.05) {
+          if (m.lHp <= 0) end("right");
+          else if (m.rHp <= 0) {
+            if (fight.requiredRare && !m.usedRare) {
+              m.rHp = Math.max(10, Math.round(rMax * 0.1)); m.banner = fight.right.name + " WILL NOT STAY DOWN";
+              m.phase = "pick"; m.rPose = "roar"; setHp(); syncUi();
+            } else end("left");
+          } else {
+            m.phase = "pick";
+            m.lStun = Math.max(0, m.lStun - 1); m.rStun = Math.max(0, m.rStun - 1);
+            m.lPose = m.lStun ? "stunned" : "idle"; m.rPose = m.rStun ? "stunned" : "idle";
+            m.playerPick = null; m.aiPick = null; m.grade = null;
+            if (m.round >= 18) end(m.lHp >= m.rHp ? "left" : "right");
+            else syncUi();
+          }
+        }
+      } else if (m.phase === "pick") {
+        m.lMeter = Math.min(100, m.lMeter + dt * (4 + L.charge * 0.08));
+        m.rMeter = Math.min(100, m.rMeter + dt * 3);
+        m.lx += (0.34 - m.lx) * (1 - Math.exp(-3 * dt));
+        m.rx += (0.66 - m.rx) * (1 - Math.exp(-3 * dt));
+        setHp();
       }
-      const shx = (Math.random() - 0.5) * shake;
-      const shy = (Math.random() - 0.5) * shake;
+
+      const sh = m.trauma * m.trauma;
+      const shx = (Math.random() - 0.5) * sh * 18;
+      const shy = (Math.random() - 0.5) * sh * 12;
       ctx.clearRect(0, 0, W, H);
-      const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0, "#1a1c24"); g.addColorStop(0.4, "#243018"); g.addColorStop(1, "#3a3420");
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "rgba(0,0,0,0.22)";
-      ctx.fillRect(0, 0, W, H * 0.22);
-      for (let i = 0; i < 28; i++) {
-        const cx = (i * 47 + t * 8) % W;
-        const cy = 10 + (i % 4) * 14 + Math.sin(t * 3 + i) * 2;
-        ctx.fillStyle = i % 3 ? "rgba(232,168,56,0.18)" : "rgba(255,255,255,0.12)";
-        ctx.fillRect(cx, cy, 7, 9);
+      const ring = ART["art/wrestle/ring.jpg"];
+      if (ring && ring.complete && ring.naturalWidth) {
+        const sc = Math.max(W / ring.naturalWidth, H / ring.naturalHeight);
+        const rw = ring.naturalWidth * sc, rh = ring.naturalHeight * sc;
+        ctx.drawImage(ring, (W - rw) / 2, (H - rh) / 2 - H * 0.04, rw, rh);
+        ctx.fillStyle = "rgba(8,8,10,0.28)"; ctx.fillRect(0, 0, W, H);
+      } else {
+        ctx.fillStyle = "#1a1c24"; ctx.fillRect(0, 0, W, H);
       }
       ctx.save();
       ctx.translate(W / 2 + shx, H / 2 + shy);
-      ctx.scale(zoom, zoom);
+      ctx.scale(m.zoom, m.zoom);
       ctx.translate(-W / 2, -H / 2);
-      ctx.fillStyle = "#5a4a32";
-      ctx.fillRect(W * 0.12, H * 0.58, W * 0.76, H * 0.22);
-      ctx.strokeStyle = "rgba(243,238,230,0.35)"; ctx.lineWidth = 4;
-      ctx.strokeRect(W * 0.12, H * 0.58, W * 0.76, H * 0.22);
-      ctx.strokeStyle = "rgba(196,92,42,0.7)"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(W * 0.14, H * 0.62); ctx.lineTo(W * 0.86, H * 0.62); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(W * 0.14, H * 0.68); ctx.lineTo(W * 0.86, H * 0.68); ctx.stroke();
-      const baseY = H * 0.62;
-      drawSheep(fight.left, W * lx, baseY, 1, lPose, 1.08);
-      drawSheep(fight.right, W * rx, baseY, -1, rPose, 1.08);
-      particles.forEach((p) => {
-        ctx.globalAlpha = Math.max(0, p.life);
+      const floorY = H * 0.72;
+      drawRam(fight.left, m.lx * W, floorY, 1, m.lPose);
+      drawRam(fight.right, m.rx * W, floorY, -1, m.rPose);
+      m.particles.forEach(function (p) {
+        ctx.globalAlpha = Math.max(0, p.life / 0.4);
         ctx.fillStyle = p.c;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x * W, p.y * H, p.r, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
       });
-      ctx.restore();
-      if (flash > 0) {
-        ctx.fillStyle = "rgba(255,240,180," + (flash * 0.45) + ")";
-        ctx.fillRect(0, 0, W, H);
-      }
-      if (bannerT > 0 && banner) {
-        ctx.fillStyle = "rgba(0,0,0,0.55)";
-        ctx.fillRect(0, H * 0.22, W, 54);
-        ctx.fillStyle = "#e8a838";
-        ctx.font = "800 11px system-ui,sans-serif";
+      if (m.dmg) {
+        ctx.globalAlpha = Math.max(0, m.dmg.life * 2);
+        ctx.fillStyle = "#f4efe4";
+        ctx.font = "700 " + Math.round(W * 0.055) + "px system-ui,sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(fight.requiredRare ? "CHAMPIONSHIP" : "LIVE FROM THE PADDOCK", W / 2, H * 0.22 + 16);
-        ctx.fillStyle = "#fff";
-        ctx.font = "900 20px system-ui,sans-serif";
-        ctx.fillText(banner, W / 2, H * 0.22 + 42);
+        ctx.fillText(m.dmg.t, m.dmg.x * W, m.dmg.y * H - (1 - m.dmg.life) * 28);
+        ctx.globalAlpha = 1;
       }
-      if (ei >= fight.events.length && bannerT <= 0) {
-        setTimeout(() => { if (!stopped) finishFight(); }, 400);
-        stopped = true;
-        return;
+      ctx.restore();
+      if (m.flash > 0) { ctx.fillStyle = "rgba(244,239,228," + (m.flash * 0.22) + ")"; ctx.fillRect(0, 0, W, H); }
+      if (m.banner) {
+        ctx.fillStyle = "rgba(10,12,16,0.62)"; ctx.fillRect(0, H * 0.18, W, 56);
+        ctx.fillStyle = "#c45c2a"; ctx.fillRect(0, H * 0.18, W, 3); ctx.fillRect(0, H * 0.18 + 53, W, 3);
+        ctx.fillStyle = "#f4efe4";
+        ctx.font = "800 " + Math.min(24, W * 0.048) + "px system-ui,sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(m.banner, W / 2, H * 0.18 + 28);
+      }
+      if (m.grade && m.phase === "anim") {
+        ctx.fillStyle = "#f4efe4";
+        ctx.font = "900 42px system-ui,sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(m.grade.toUpperCase(), W / 2, H * 0.4);
+      }
+      if (m.phase === "timing" || m.phase === "pin") {
+        const needle = m.phase === "pin" ? m.pinNeedle : m.timing;
+        const winA = m.phase === "pin" ? 0.45 : 0.6;
+        const winB = m.phase === "pin" ? 0.75 : 0.78;
+        const x = W * 0.12, y = H * 0.86, w = W * 0.76, h = 10;
+        ctx.fillStyle = "rgba(20,20,24,0.8)"; ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = "rgba(88,224,138,0.9)"; ctx.fillRect(x + winA * w, y, (winB - winA) * w, h);
+        ctx.fillStyle = "#f4efe4"; ctx.fillRect(x + needle * w - 2, y - 3, 4, h + 6);
+        ctx.font = "700 12px system-ui,sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(m.phase === "pin" ? ("COUNT " + m.pinStep + "/3 — TAP") : "TAP THE COPPER", W / 2, y - 10);
       }
       raf = requestAnimationFrame(tick);
-    };
+    }
     arenaAnim = {
-      stop: () => { stopped = true; cancelAnimationFrame(raf); },
+      stop: function () { stopped = true; cancelAnimationFrame(raf); canvas.onclick = null; },
+      skip: function () {
+        if (m.phase === "over") return;
+        const rating = powerRating(fight.left) - powerRating(fight.right);
+        let winner = Math.random() < 0.5 + rating / 80 ? "left" : "right";
+        if (fight.requiredRare && winner === "left" && !m.usedRare) winner = "right";
+        end(winner);
+      }
     };
     raf = requestAnimationFrame(tick);
+    window.addEventListener("resize", resize);
   }
 
   // ─── UI render ──────────────────────────────────────────────────────
@@ -1123,7 +1361,10 @@
   document.querySelectorAll("#wNav button").forEach((b) => {
     b.addEventListener("click", () => setScreen(b.getAttribute("data-screen")));
   });
-  document.getElementById("wSkipFight").addEventListener("click", finishFight);
+  document.getElementById("wSkipFight").addEventListener("click", function () {
+    if (arenaAnim && arenaAnim.skip) arenaAnim.skip();
+    else finishFight();
+  });
   document.getElementById("wResultOk").addEventListener("click", () => {
     document.getElementById("wResult").classList.remove("on");
     setScreen("arena");
